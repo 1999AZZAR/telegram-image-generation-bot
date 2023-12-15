@@ -1,115 +1,163 @@
 import os
 import logging
+import telegram
+import threading
+
 from dotenv import load_dotenv
-from telegram import Update
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext, ConversationHandler
-from telegram import ReplyKeyboardMarkup, ReplyKeyboardRemove
-from helper import generate_image  # Import the generate_image function from helper.py
+from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, ConversationHandler
+from telegram import ReplyKeyboardMarkup, ReplyKeyboardRemove, ChatAction
 
-# Load environment variables
-load_dotenv()
-api_key = os.getenv('STABILITY_API_KEY')
-token = os.getenv('TELEGRAM_BOT_TOKEN') 
+from helper import image_gen, helper_code
+from telegram.error import NetworkError
 
-# Set up logging
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
-logger = logging.getLogger(__name__)
+class BotHandler:
+    connection_alive = True 
 
-# State constants
-WAITING_FOR_PROMPT, WAITING_FOR_STYLE, PROCESSING = range(3)
+    def __init__(self):
+        load_dotenv('env')
+        logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+        self.bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
+        self.updater = Updater(self.bot_token, use_context=True)
+        self.dispatcher = self.updater.dispatcher
+        self.helper = helper_code
 
-# Function to handle the /image command
-def image(update: Update, context: CallbackContext) -> int:
-    chat_id = update.message.chat_id
+        self.image_gen = image_gen
+        self.WAITING_FOR_PROMPT, self.WAITING_FOR_SIZE, self.WAITING_FOR_STYLE, self.PROCESSING = range(4)
+        self.conv_handler = ConversationHandler(
+            entry_points=[CommandHandler('image', self.image)],
+            states={
+                self.WAITING_FOR_PROMPT: [MessageHandler(Filters.text & ~Filters.command, self.handle_image_prompt)],
+                self.WAITING_FOR_SIZE: [MessageHandler(Filters.text & ~Filters.command, self.handle_image_size)],
+                self.WAITING_FOR_STYLE: [MessageHandler(Filters.text & ~Filters.command, self.handle_image_style)],
+            },
+            fallbacks=[],
+        )
 
-    # Ask the user for a prompt
-    update.message.reply_text("Please enter a prompt for the image generation:")
+    def _add_command_handlers(self):
+        self.dispatcher.add_handler(CommandHandler("start", self.start))
+        self.dispatcher.add_handler(self.conv_handler)
 
-    # Set the state to 'WAITING_FOR_PROMPT'
-    context.user_data['state'] = WAITING_FOR_PROMPT
+    def _add_error_handler(self):
+        self.dispatcher.add_error_handler(self.error_handler)
 
-    return WAITING_FOR_PROMPT
+    def error_handler(self, update, context):
+        logging.error(f"Error occurred: {context.error}")
+        if update.message:
+            update.message.reply_text("Sorry, something went wrong. Please try again later.")
+        else:
+            logging.warning("Update message is None. Unable to send error message to the user.")
 
+    def connection_watchdog(self):
+        while True:
+            try:
+                self.updater.bot.get_me()
+                if not self.connection_alive:
+                    logging.info("Connection reestablished.")
+                    self.connection_alive = True
+            except NetworkError:
+                if self.connection_alive:
+                    logging.error("Connection lost. Attempting to reconnect...")
+                    self.connection_alive = False
+                    self.updater.start_polling(drop_pending_updates=True)
 
-# Function to handle text messages
-def handle_text(update: Update, context: CallbackContext) -> int:
-    chat_id = update.message.chat_id
+    def send_chat_action(self, update, context, action):
+        try:
+            context.bot.send_chat_action(chat_id=update.effective_chat.id, action=action)
+        except telegram.error.TimedOut:
+            logging.error("Timed out while sending chat action. Ignoring and continuing.")
 
-    # Check the state
-    if 'state' in context.user_data and context.user_data['state'] == WAITING_FOR_PROMPT:
-        # Get the user input (prompt)
-        prompt = update.message.text
+    def get_user_id(self, update):
+        return (update.callback_query.from_user.id if update.callback_query and update.callback_query.from_user else None) or \
+            (update.message.from_user.id if update.message and update.message.from_user else None)
 
-        # Save the prompt in the user data
-        context.user_data['prompt'] = prompt
+    def start(self, update, context):
+        user_id = update.message.from_user.id
+        self.send_chat_action(update, context, ChatAction.TYPING)
+        if self.helper.is_user(user_id):
+            logging.info(f"User selected the /start command")
+            message = f"🌸 Greetings {update.message.from_user.first_name}, I'm a stability-powered Telegram bot. Use \"/image\" command to start generating an image. Let's explore the world of possibilities together!"
+        else:
+            message = "Apologies, you lack the necessary authorization to utilize my services."
+        update.message.reply_text(text=message, parse_mode="MARKDOWN")
 
-        # Ask the user for a style using a custom one-time keyboard
-        style_keyboard = [
-            ["photographic", "enhance", "anime"],
-            ["digital-art", "comic-book", "fantasy-art"],
-            ["line-art", "analog-film", "neon-punk"],
-            ["isometric", "low-poly", "origami"],
-            ["modeling-compound", "cinematic", "3d-model"],
-            ["pixel-art", "tile-texture"]
-        ]
+    def image(self, update, context):
+        user_id = update.message.from_user.id
+        logging.info(f"Image generation from {update.message.from_user.first_name}")
+        chat_id = update.message.chat_id
+        if self.helper.is_user(user_id):
+            update.message.reply_text("Please enter a prompt for the image generation:")
+            context.user_data['state'] = self.WAITING_FOR_PROMPT
+            return self.WAITING_FOR_PROMPT
+        else:
+            update.message.reply_text("Apologies, you lack the necessary authorization to utilize my services.")
+            return ConversationHandler.END
 
-        reply_markup = ReplyKeyboardMarkup(style_keyboard, one_time_keyboard=True)
-        update.message.reply_text("Please select a style for the image:", reply_markup=reply_markup)
+    def handle_image_prompt(self, update, context):
+        chat_id = update.message.chat_id
+        if 'state' in context.user_data and context.user_data['state'] == self.WAITING_FOR_PROMPT:
+            prompt = update.message.text
+            context.user_data['prompt'] = prompt
+            size_keyboard = [
+                ["landscape", "widescreen", "panorama"],
+                ["square-l", "square", "square-p"],
+                ["portrait", "highscreen", "panorama-p"]
+            ]
+            reply_markup = ReplyKeyboardMarkup(size_keyboard, one_time_keyboard=True)
+            update.message.reply_text("Please select the preferred size for the image:", reply_markup=reply_markup)
+            context.user_data['state'] = self.WAITING_FOR_SIZE
+            return self.WAITING_FOR_SIZE
 
-        # Set the state to 'WAITING_FOR_STYLE'
-        context.user_data['state'] = WAITING_FOR_STYLE
+    def handle_image_size(self, update, context):
+        chat_id = update.message.chat_id
+        if 'state' in context.user_data and context.user_data['state'] == self.WAITING_FOR_SIZE:
+            size = update.message.text
+            context.user_data['size'] = size
+            style_keyboard = [
+                ["photographic", "enhance", "anime"],
+                ["digital-art", "comic-book", "fantasy-art"],
+                ["line-art", "analog-film", "neon-punk"],
+                ["isometric", "low-poly", "origami"],
+                ["modeling-compound", "cinematic", "3d-model"],
+                ["pixel-art", "tile-texture", "None"]
+            ]
+            reply_markup = ReplyKeyboardMarkup(style_keyboard, one_time_keyboard=True)
+            update.message.reply_text("Please select a style for the image:", reply_markup=reply_markup)
+            context.user_data['state'] = self.WAITING_FOR_STYLE
+            return self.WAITING_FOR_STYLE
 
-        return WAITING_FOR_STYLE
+    def handle_image_style(self, update, context):
+        chat_id = update.message.chat_id
+        if 'state' in context.user_data and context.user_data['state'] == self.WAITING_FOR_STYLE:
+            style = update.message.text
+            prompt = context.user_data.get('prompt', '')
+            size = context.user_data.get('size', 'square')
+            context.user_data['state'] = self.PROCESSING
+            reply_markup = ReplyKeyboardRemove()
+            logging.info("Generating image...")
+            message = update.message.reply_text("Processing...", reply_markup=reply_markup)
+            generated_image_path = self.image_gen.generate_image(prompt, style, size)
+            if generated_image_path:
+                self.send_chat_action(update, context, ChatAction.UPLOAD_PHOTO)
+                with open(generated_image_path, "rb") as f:
+                    context.bot.send_photo(chat_id, photo=f)
+                context.bot.delete_message(chat_id=chat_id, message_id=message.message_id)
+                os.remove(generated_image_path)
+                logging.info(f"Image successfully generated and sent to user {chat_id}")
+            else:
+                logging.error(f"Error generating image for user {chat_id}")
+                context.bot.send_message(chat_id, "Sorry, there was an error generating the image. Please try again using another prompt.")
+            return ConversationHandler.END
+        return context.user_data.get('state', self.WAITING_FOR_PROMPT)
 
-    elif 'state' in context.user_data and context.user_data['state'] == WAITING_FOR_STYLE:
-        # Get the user input (style)
-        style = update.message.text
+    def run(self):
+        self._add_command_handlers()
+        self._add_error_handler()
+        self.updater.start_polling()
+        logging.info("The bot has started")
+        logging.info("The bot is listening for messages")
+        threading.Thread(target=self.connection_watchdog, daemon=True).start()
+        self.updater.idle()
 
-        # Get the saved prompt from user data
-        prompt = context.user_data.get('prompt', '')
-
-        # Set the state to 'PROCESSING'
-        context.user_data['state'] = PROCESSING
-
-        # Send "Processing..." message and remove the one-time keyboard
-        reply_markup = ReplyKeyboardRemove()
-        update.message.reply_text("Processing...", reply_markup=reply_markup)
-
-        # Generate the image using the function from helper.py
-        generated_image_path = generate_image(prompt, style)
-
-        # Send the generated image to the user
-        with open(generated_image_path, "rb") as f:
-            context.bot.send_photo(chat_id, photo=f)
-
-        # Log the successful image generation
-        logger.info(f"Image successfully generated and sent to user {chat_id}")
-
-        return ConversationHandler.END  # End the conversation
-
-    # If the state is not 'WAITING_FOR_PROMPT' or 'WAITING_FOR_STYLE', return the current state
-    return context.user_data.get('state', WAITING_FOR_PROMPT)
-
-# Create the conversation handler
-conv_handler = ConversationHandler(
-    entry_points=[CommandHandler('image', image)],
-    states={
-        WAITING_FOR_PROMPT: [MessageHandler(Filters.text & ~Filters.command, handle_text)],
-        WAITING_FOR_STYLE: [MessageHandler(Filters.text & ~Filters.command, handle_text)],
-    },
-    fallbacks=[],
-)
-
-# Set up the Telegram bot
-updater = Updater(token)
-dispatcher = updater.dispatcher
-
-# Add command handlers
-dispatcher.add_handler(CommandHandler("image", image))
-dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_text))
-dispatcher.add_handler(MessageHandler(Filters.regex(r'^(photographic|enhance|anime|digital-art|comic-book|fantasy-art|line-art|analog-film|neon-punk|isometric|low-poly|origami|modeling-compound|cinematic|3d-model|pixel-art|tile-texture)$'), handle_text))
-dispatcher.add_handler(conv_handler)
-
-# Start the bot
-updater.start_polling()
-updater.idle()
+if __name__ == "__main__":
+    bot_handler = BotHandler()
+    bot_handler.run()

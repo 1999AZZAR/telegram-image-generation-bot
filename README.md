@@ -59,9 +59,11 @@ Follow these steps to set up and run the Telegram bot:
     ```dotenv
     STABILITY_API_KEY=your_stability_api_key
     TELEGRAM_BOT_TOKEN=your_telegram_bot_token
+    USER_ID="*" # comma for separation, '*' to enable all user access.
+    ADMIN_ID="*" # comma for separation, '*' to enable all user access.
     ```
 
-    Replace `your_stability_api_key` and `your_telegram_bot_token` with your Stability AI API key and Telegram bot token, respectively.
+    Replace `your_stability_api_key`, `your_telegram_bot_token` and user and/or admin id  with your Stability AI API key, Telegram bot token and telegram id, respectively.
 
 ### 2.3 Running the Bot
 
