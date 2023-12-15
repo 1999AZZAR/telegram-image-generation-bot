@@ -104,50 +104,55 @@ project-directory/
 ## 5. Flowchart
 
 ```mermaid
-graph TD
+graph LR
 
-subgraph TelegramBot
+subgraph MainFunction
   A[Start]
   B[User sends /image command]
   C[Bot asks for prompt]
   D[User provides prompt]
-  E[Bot asks for style]
-  F[User provides style]
-  G[Bot processes input]
-  H[Bot generates image]
-  I[Bot sends image to user]
-  J[End]
+  E[Bot ask for size]
+  F[User provide size]
+  G[Bot asks for style]
+  H[User provides style]
+  I[Bot processes input]
+  J[Bot generates image]
+  K[Bot sends image to user]
+  L[End]
 
   A -->|Initiate| B
   B -->|Command received| C
   C -->|Ask for prompt| D
   D -->|Prompt received| E
-  E -->|Ask for style| F
-  F -->|Style received| G
-  G -->|Process input| H
-  H -->|Generate image| I
-  I -->|Send image| J
-  J -->|End| A
+  E -->|Ask for size| F
+  F -->|Size received| G
+  G -->|Ask for style| H
+  H -->|Style received| I
+  I -->|Process input| J
+  J -->|Generate image| HelperFunctions
+  HelperFunctions -->|Send image| K
+  K --> |image send| L
+  L -->|End| B
 end
 
 subgraph HelperFunctions
-  K[Helper function: generate_image]
+  M[Helper function: generate_image]
 end
 
-B -->|Calls| K
-K -->|Generates image| H
-
-style A fill:#ddd,stroke:#000,stroke-width:2px;
-style B fill:#ddd,stroke:#000,stroke-width:2px;
-style C fill:#ddd,stroke:#000,stroke-width:2px;
-style D fill:#ddd,stroke:#000,stroke-width:2px;
-style E fill:#ddd,stroke:#000,stroke-width:2px;
-style F fill:#ddd,stroke:#000,stroke-width:2px;
-style G fill:#ddd,stroke:#000,stroke-width:2px;
-style H fill:#ddd,stroke:#000,stroke-width:2px;
-style I fill:#ddd,stroke:#000,stroke-width:2px;
-style J fill:#ddd,stroke:#000,stroke-width:2px;
-style K fill:#ddd,stroke:#000,stroke-width:2px;
+style A fill:#C21292,stroke:#000,stroke-width:2px;
+style B fill:#EF4040,stroke:#000,stroke-width:2px;
+style C fill:#711DB0,stroke:#000,stroke-width:2px;
+style D fill:#FF90BC,stroke:#000,stroke-width:2px;
+style E fill:#711DB0,stroke:#000,stroke-width:2px;
+style F fill:#FF90BC,stroke:#000,stroke-width:2px;
+style G fill:#711DB0,stroke:#000,stroke-width:2px;
+style H fill:#FF90BC,stroke:#000,stroke-width:2px;
+style I fill:#092635,stroke:#000,stroke-width:2px;
+style J fill:#092635,stroke:#000,stroke-width:2px;
+style K fill:#092635,stroke:#000,stroke-width:2px;
+style M fill:#C21292,stroke:#000,stroke-width:0px;
+style HelperFunctions fill:#711DB0,stroke:#000,stroke-width:3px;
+style MainFunction fill:#FFA732,stroke:#000,stroke-width:3px;
 
 ```
 
