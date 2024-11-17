@@ -1,2 +1,5 @@
 .venv/*
-bot/*.env
+bot/.env
+bot/__pycache__/*
+bot/image/
+bot/*.db
