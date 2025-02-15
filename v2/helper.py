@@ -66,7 +66,8 @@ class ImageHelper:
     def generate_image(self, params: GenerationParams) -> Optional[str]:
         try:
             response = requests.post(
-                "https://api.stability.ai/v1/generation/stable-diffusion-xl-1024-v1-0/text-to-image",
+                "https://api.stability.ai/v1/generation/stable-diffusion-v1-6/text-to-image",
+                # "https://api.stability.ai/v1/generation/stable-diffusion-xl-1024-v1-0/text-to-image",
                 headers={
                     "Content-Type": "application/json",
                     "Accept": "application/json",
