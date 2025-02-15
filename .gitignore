@@ -4,3 +4,6 @@ bot/__pycache__/*
 bot/image/
 bot/*.db
 .env
+*/__pycache__/
+__pycache__/
+*/image/
