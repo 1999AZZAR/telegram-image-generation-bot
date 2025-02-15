@@ -3,3 +3,4 @@ bot/.env
 bot/__pycache__/*
 bot/image/
 bot/*.db
+.env
