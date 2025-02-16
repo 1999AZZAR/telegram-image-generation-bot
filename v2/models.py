@@ -10,6 +10,9 @@ class ConversationState(Enum):
     WAITING_FOR_IMAGE = 3
     WAITING_FOR_FORMAT = 4
     WAITING_FOR_CONTROL_TYPE = 5
+    WAITING_FOR_METHOD = 6
+    WAITING_FOR_UPSCALE_METHOD = 7
+    WAITING_FOR_UPSCALE_PROMPT = 8
 
 
 @dataclass
@@ -65,3 +68,4 @@ class ReimagineParams:
     seed: int = 0
     output_format: str = "jpeg"
     style: str = "None"
+    method: str = "image"  # New field for method selection (image or sketch)

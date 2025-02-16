@@ -1,6 +1,7 @@
 import os
 import base64
 import logging
+import time
 from typing import Optional
 import requests
 from PIL import Image, ImageEnhance
@@ -148,13 +149,37 @@ class ImageHelper:
 
         return generation_params
 
-    def upscale_image(self, image_path: str, output_format: str) -> str:
+    def upscale_image(
+        self,
+        image_path: str,
+        output_format: str,
+        method: str = "fast",
+        prompt: str = "",
+        negative_prompt: str = "",
+        creativity: float = 0.35,
+        style_preset: str = "None",
+    ) -> str:
         """Sends the image to Stability AI for upscaling, resizing it first if too large."""
-        host = "https://api.stability.ai/v2beta/stable-image/upscale/fast"
-        params = {"output_format": output_format}
+        host = f"https://api.stability.ai/v2beta/stable-image/upscale/{method}"
+        params = {
+            "output_format": output_format,
+        }
+
+        # Add additional parameters for conservative and creative modes
+        if method in ["conservative", "creative"]:
+            params.update(
+                {
+                    "prompt": prompt,
+                    "negative_prompt": negative_prompt,
+                    "creativity": creativity,
+                }
+            )
+            if method == "creative" and style_preset != "None":
+                params["style_preset"] = style_preset
+
         headers = {
             "Authorization": f"Bearer {self.api_key}",
-            "Accept": "image/*",
+            "Accept": "application/json" if method == "creative" else "image/*",
         }
 
         try:
@@ -199,16 +224,88 @@ class ImageHelper:
 
             self.logger.info(f"✅ Stability AI Response: {response.status_code}")
 
-            response.raise_for_status()
-            output_image = response.content
+            if method == "creative":
+                # Handle creative upscaling (asynchronous workflow)
+                if response.status_code != 200:
+                    self.logger.error(f"❌ Error in upscaling request: {response.text}")
+                    return None
 
-            # ✅ Step 4: Save upscaled image with correct filename
-            upscaled_path = f"{self.output_directory}/upscalled.{output_format}"
-            with open(upscaled_path, "wb") as f:
-                f.write(output_image)
+                generation_id = response.json().get("id")
+                if not generation_id:
+                    self.logger.error("❌ No generation ID found in the response.")
+                    return None
 
-            self.logger.info(f"✅ Upscaled image saved as: {upscaled_path}")
-            return upscaled_path
+                self.logger.info(f"🔍 Generation ID: {generation_id}")
+
+                # ✅ Step 4: Poll the results endpoint to retrieve the final image
+                results_url = f"https://api.stability.ai/v2beta/results/{generation_id}"
+                headers["Accept"] = "application/json"  # We expect JSON response
+
+                while True:
+                    self.logger.info("🔄 Polling for results...")
+                    response = requests.get(results_url, headers=headers, timeout=120)
+
+                    if response.status_code == 202:
+                        # Generation is still in progress, wait and retry
+                        self.logger.info(
+                            "⏳ Generation in progress, retrying in 10 seconds..."
+                        )
+                        time.sleep(10)
+                    elif response.status_code == 200:
+                        # Generation is complete, check if the image is ready
+                        result = response.json()
+                        if result.get("status") == "succeeded":
+                            self.logger.info("✅ Generation complete!")
+                            image_url = result.get("output", [{}])[0].get("url")
+                            if not image_url:
+                                self.logger.error(
+                                    "❌ No image URL found in the response."
+                                )
+                                return None
+
+                            # Download the image
+                            self.logger.info(f"📥 Downloading image from: {image_url}")
+                            image_response = requests.get(image_url, timeout=120)
+                            if image_response.status_code != 200:
+                                self.logger.error(
+                                    f"❌ Error downloading image: {image_response.text}"
+                                )
+                                return None
+
+                            # ✅ Step 5: Save upscaled image with correct filename
+                            upscaled_path = f"{self.output_directory}/upscaled_{method}.{output_format}"
+                            with open(upscaled_path, "wb") as f:
+                                f.write(image_response.content)
+
+                            self.logger.info(
+                                f"✅ Upscaled image saved as: {upscaled_path}"
+                            )
+                            return upscaled_path
+                        else:
+                            self.logger.error(
+                                f"❌ Generation failed with status: {result.get('status')}"
+                            )
+                            return None
+                    else:
+                        self.logger.error(
+                            f"❌ Error in results request: {response.text}"
+                        )
+                        return None
+            else:
+                # Handle conservative and fast upscaling (synchronous workflow)
+                if response.status_code != 200:
+                    self.logger.error(f"❌ Error in upscaling request: {response.text}")
+                    return None
+
+                # ✅ Step 4: Save upscaled image with correct filename
+                upscaled_path = (
+                    f"{self.output_directory}/upscaled_{method}.{output_format}"
+                )
+                with open(upscaled_path, "wb") as f:
+                    f.write(response.content)
+
+                self.logger.info(f"✅ Upscaled image saved as: {upscaled_path}")
+                return upscaled_path
 
         except requests.exceptions.Timeout:
             self.logger.error("⏳ Upscaling request timed out.")
@@ -226,6 +323,8 @@ class ImageHelper:
         """Sends an image to Stability AI's reimagine API for structural transformation."""
         try:
             host = "https://api.stability.ai/v2beta/stable-image/control/structure"
+            if params.method == "sketch":
+                host = "https://api.stability.ai/v2beta/stable-image/control/sketch"
 
             request_params = {
                 "control_strength": params.control_strength,

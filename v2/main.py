@@ -72,10 +72,27 @@ class TelegramBot:
         conv_handler_upscale = ConversationHandler(
             entry_points=[CommandHandler("upscale", self.routes.upscale_command)],
             states={
-                ConversationState.WAITING_FOR_IMAGE: [
+                ConversationState.WAITING_FOR_UPSCALE_METHOD: [  # State for method selection
+                    MessageHandler(
+                        filters.TEXT & ~filters.COMMAND,
+                        self.routes.handle_upscale_method,
+                    )
+                ],
+                ConversationState.WAITING_FOR_UPSCALE_PROMPT: [  # State for prompt input
+                    MessageHandler(
+                        filters.TEXT & ~filters.COMMAND,
+                        self.routes.handle_upscale_prompt,
+                    )
+                ],
+                ConversationState.WAITING_FOR_STYLE: [  # State for style selection (for creative mode)
+                    MessageHandler(
+                        filters.TEXT & ~filters.COMMAND, self.routes.handle_style
+                    )
+                ],
+                ConversationState.WAITING_FOR_IMAGE: [  # State for image upload
                     MessageHandler(filters.PHOTO, self.routes.handle_image)
                 ],
-                ConversationState.WAITING_FOR_FORMAT: [
+                ConversationState.WAITING_FOR_FORMAT: [  # State for format selection
                     MessageHandler(
                         filters.TEXT & ~filters.COMMAND, self.routes.handle_format
                     )
@@ -88,6 +105,11 @@ class TelegramBot:
         conv_handler_reimagine = ConversationHandler(
             entry_points=[CommandHandler("reimagine", self.routes.reimagine_command)],
             states={
+                ConversationState.WAITING_FOR_METHOD: [  # New state for method selection
+                    MessageHandler(
+                        filters.TEXT & ~filters.COMMAND, self.routes.handle_method
+                    )
+                ],
                 ConversationState.WAITING_FOR_IMAGE: [
                     MessageHandler(filters.PHOTO, self.routes.handle_image)
                 ],
@@ -103,7 +125,7 @@ class TelegramBot:
                         self.routes.handle_reimagine_prompt,
                     )
                 ],
-                ConversationState.WAITING_FOR_FORMAT: [  # ✅ Add this line to fix the error
+                ConversationState.WAITING_FOR_FORMAT: [
                     MessageHandler(
                         filters.TEXT & ~filters.COMMAND, self.routes.handle_format
                     )

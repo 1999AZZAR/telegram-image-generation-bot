@@ -135,59 +135,174 @@ class TelegramRoutes:
     async def handle_style(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> int:
-        await update.message.reply_text(
-            "🎨 Generating your image...", reply_markup=ReplyKeyboardRemove()
-        )
+        """Handles style selection for both image generation and creative upscaling."""
+        style = update.message.text
+        context.user_data["style"] = style
 
-        try:
-            await context.bot.send_chat_action(
-                chat_id=update.effective_chat.id, action=ChatAction.UPLOAD_PHOTO
+        generation_type = context.user_data.get("generation_type")
+
+        if generation_type == "Reimagine":
+            # Handle reimagine flow
+            await update.message.reply_text(
+                "✨ Reimagining your image...", reply_markup=ReplyKeyboardRemove()
             )
 
-            params = GenerationParams(
-                prompt=context.user_data.get("prompt", ""),
-                style=update.message.text,
-                size=context.user_data.get("size", "square"),
-                control_image=context.user_data.get("control_image", None),
-            )
-
-            image_path = self.image_helper.generate_image(params)
-
-            if not image_path:
-                raise Exception("Image generation failed")
-
-            with open(image_path, "rb") as photo:
-                await context.bot.send_photo(
-                    chat_id=update.effective_chat.id,
-                    photo=photo,
-                    caption="🎨 Here's your generated image!",
+            try:
+                await context.bot.send_chat_action(
+                    chat_id=update.effective_chat.id, action=ChatAction.UPLOAD_PHOTO
                 )
 
-            os.remove(image_path)
+                params = ReimagineParams(
+                    prompt=context.user_data.get("prompt", ""),
+                    control_image=context.user_data.get("control_image", ""),
+                    style=style,
+                )
 
-        except Exception as e:
-            self.logger.error(f"Error in handle_style: {e}")
+                image_path = self.image_helper.reimagine_image(params)
+
+                if not image_path:
+                    raise Exception("Reimagining failed")
+
+                with open(image_path, "rb") as photo:
+                    await context.bot.send_photo(
+                        chat_id=update.effective_chat.id,
+                        photo=photo,
+                        caption="🎭 Here's your reimagined image!",
+                    )
+
+                os.remove(image_path)
+
+            except Exception as e:
+                self.logger.error(f"Error in handle_style (Reimagine): {e}")
+                await update.message.reply_text(
+                    "❌ Sorry, there was an error reimagining your image. Please try again."
+                )
+
+        elif (
+            generation_type == "Upscale"
+            and context.user_data.get("upscale_method") == "creative"
+        ):
+            # Handle creative upscaling flow
             await update.message.reply_text(
-                "❌ Sorry, there was an error generating your image. Please try again."
+                "📷 Please send the image you want to upscale.",
+                reply_markup=ReplyKeyboardRemove(),
             )
+            return ConversationState.WAITING_FOR_IMAGE
+
+        else:
+            # Handle regular image generation flow
+            await update.message.reply_text(
+                "🎨 Generating your image...", reply_markup=ReplyKeyboardRemove()
+            )
+
+            try:
+                await context.bot.send_chat_action(
+                    chat_id=update.effective_chat.id, action=ChatAction.UPLOAD_PHOTO
+                )
+
+                params = GenerationParams(
+                    prompt=context.user_data.get("prompt", ""),
+                    style=style,
+                    size=context.user_data.get("size", "square"),
+                    control_image=context.user_data.get("control_image", None),
+                )
+
+                image_path = self.image_helper.generate_image(params)
+
+                if not image_path:
+                    raise Exception("Image generation failed")
+
+                with open(image_path, "rb") as photo:
+                    await context.bot.send_photo(
+                        chat_id=update.effective_chat.id,
+                        photo=photo,
+                        caption="🎨 Here's your generated image!",
+                    )
+
+                os.remove(image_path)
+
+            except Exception as e:
+                self.logger.error(f"Error in handle_style (Image Generation): {e}")
+                await update.message.reply_text(
+                    "❌ Sorry, there was an error generating your image. Please try again."
+                )
 
         return ConversationHandler.END
 
     async def upscale_command(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> ConversationState:
-        """Handles /upscale command and asks user to send an image."""
+        """Handles /upscale command and asks user to select the upscaling method."""
         if not self.auth_helper.is_user(str(update.message.from_user.id)):
             await update.message.reply_text(
                 "🔒 Sorry, you are not authorized to use this bot."
             )
             return ConversationHandler.END
 
-        # ✅ Set correct generation type for /upscale
+        # Set generation_type to "Upscale"
         context.user_data["generation_type"] = "Upscale"
 
-        await update.message.reply_text("📷 Please send the image you want to upscale.")
-        return ConversationState.WAITING_FOR_IMAGE
+        # Ask user to select upscaling method
+        keyboard = ReplyKeyboardMarkup(
+            [["Conservative", "Creative", "Fast"]],
+            one_time_keyboard=True,
+            resize_keyboard=True,
+        )
+        await update.message.reply_text(
+            "🖼️ Choose the upscaling method (Conservative, Creative, Fast):",
+            reply_markup=keyboard,
+        )
+
+        return ConversationState.WAITING_FOR_UPSCALE_METHOD
+
+    async def handle_upscale_prompt(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> ConversationState:
+        """Handles the input of the upscaling prompt."""
+        context.user_data["upscale_prompt"] = update.message.text
+
+        # If the method is "creative", ask for a style preset
+        if context.user_data.get("upscale_method") == "creative":
+            image_config = ImageConfig()
+            keyboard = ReplyKeyboardMarkup(
+                image_config.STYLE_PRESETS,
+                one_time_keyboard=True,
+                resize_keyboard=True,
+            )
+            await update.message.reply_text(
+                "🎭 Select a style preset for creative upscaling:",
+                reply_markup=keyboard,
+            )
+            return ConversationState.WAITING_FOR_STYLE
+        else:
+            # For "conservative" mode, proceed to ask for the image
+            await update.message.reply_text(
+                "📷 Please send the image you want to upscale."
+            )
+            return ConversationState.WAITING_FOR_IMAGE
+
+    async def handle_upscale_method(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> ConversationState:
+        """Handles the selection of upscaling method (conservative, creative, fast)."""
+        method = update.message.text.lower()
+        if method not in ["conservative", "creative", "fast"]:
+            await update.message.reply_text(
+                "❌ Invalid method. Please choose 'Conservative', 'Creative', or 'Fast'."
+            )
+            return ConversationState.WAITING_FOR_UPSCALE_METHOD
+
+        context.user_data["upscale_method"] = method
+
+        if method in ["conservative", "creative"]:
+            await update.message.reply_text("✏️ Please provide a prompt for upscaling.")
+            return ConversationState.WAITING_FOR_UPSCALE_PROMPT
+        else:
+            # For "fast" mode, proceed to ask for the image
+            await update.message.reply_text(
+                "📷 Please send the image you want to upscale."
+            )
+            return ConversationState.WAITING_FOR_IMAGE
 
     async def handle_image(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
@@ -205,14 +320,20 @@ class TelegramRoutes:
 
             self.logger.info(f"✅ Image successfully downloaded: {file_path}")
 
-            generation_type = context.user_data.get(
-                "generation_type"
-            )  # Ensure we check for the correct type
+            # Retrieve generation_type from context
+            generation_type = context.user_data.get("generation_type")
+
+            if generation_type is None:
+                self.logger.error("⚠️ Missing generation_type in context.")
+                await update.message.reply_text(
+                    "❌ Something went wrong. Please restart the command."
+                )
+                return ConversationHandler.END
 
             if generation_type == "Reimagine":
                 context.user_data["control_image"] = file_path
 
-                # ✅ Ask for style selection before prompt
+                # Ask for style selection
                 image_config = ImageConfig()
                 keyboard = ReplyKeyboardMarkup(
                     image_config.STYLE_PRESETS,
@@ -247,13 +368,10 @@ class TelegramRoutes:
                 await update.message.reply_text(
                     "📁 Select output format:", reply_markup=keyboard
                 )
-                return (
-                    ConversationState.WAITING_FOR_FORMAT
-                )  # ✅ Correctly return WAITING_FOR_FORMAT for upscale
+                return ConversationState.WAITING_FOR_FORMAT
 
             else:
-                # ❌ If `generation_type` is missing, send an error and reset
-                self.logger.error("⚠️ Missing generation_type in context.")
+                self.logger.error(f"⚠️ Unknown generation_type: {generation_type}")
                 await update.message.reply_text(
                     "❌ Something went wrong. Please restart the command."
                 )
@@ -276,9 +394,17 @@ class TelegramRoutes:
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> int:
         """Handles image upscaling and sends back the result as a file."""
-        await update.message.reply_text(
-            "🔄 Upscaling your image...", reply_markup=ReplyKeyboardRemove()
-        )
+        upscale_method = context.user_data.get("upscale_method", "fast")
+
+        if upscale_method == "creative":
+            await update.message.reply_text(
+                "🔄 Upscaling your image using the creative method... This may take a few moments. Please wait.",
+                reply_markup=ReplyKeyboardRemove(),
+            )
+        else:
+            await update.message.reply_text(
+                "🔄 Upscaling your image...", reply_markup=ReplyKeyboardRemove()
+            )
 
         try:
             await context.bot.send_chat_action(
@@ -287,9 +413,23 @@ class TelegramRoutes:
 
             image_path = context.user_data.get("image", "")
             output_format = update.message.text
+            prompt = context.user_data.get("upscale_prompt", "")
+            negative_prompt = "2 faces, 2 heads, bad anatomy, blurry, cloned face, cropped image, cut-off, deformed hands, disconnected limbs, disgusting, disfigured, draft, duplicate artifact, extra fingers, extra limb, floating limbs, gloss proportions, grain, gross proportions, long body, long neck, low-res, mangled, malformed, malformed hands, missing arms, missing limb, morbid, mutation, mutated, mutated hands, mutilated, mutilated hands, multiple heads, negative aspect, out of frame, poorly drawn, poorly drawn face, poorly drawn hands, signatures, surreal, tiling, twisted fingers, ugly"
+            creativity = 0.35  # Default creativity value
+            style_preset = (
+                context.user_data.get("style", "None")
+                if upscale_method == "creative"
+                else "None"
+            )
 
             upscaled_image_path = self.image_helper.upscale_image(
-                image_path, output_format
+                image_path,
+                output_format,
+                method=upscale_method,
+                prompt=prompt,
+                negative_prompt=negative_prompt,
+                creativity=creativity,
+                style_preset=style_preset,
             )
 
             if not upscaled_image_path:
@@ -299,8 +439,8 @@ class TelegramRoutes:
                 await context.bot.send_document(
                     chat_id=update.effective_chat.id,
                     document=file,
-                    filename=f"upscalled.{output_format}",  # ✅ Ensures correct filename when sending
-                    caption="🖼️ Here's your upscaled image (sent as a file to preserve quality).",
+                    filename=f"upscaled.{output_format}",  # ✅ Ensures correct filename when sending
+                    caption=f"🖼️ Here's your upscaled image (using {upscale_method} method).",
                 )
 
             os.remove(upscaled_image_path)
@@ -331,11 +471,18 @@ class TelegramRoutes:
             )
             return ConversationHandler.END
 
-        # ✅ Ensure generation_type is set correctly
+        # Set generation_type to "Reimagine"
         context.user_data["generation_type"] = "Reimagine"
 
-        await update.message.reply_text("📤 Please upload an image to reimagine.")
-        return ConversationState.WAITING_FOR_IMAGE
+        # Ask user to select method (Image or Sketch)
+        keyboard = ReplyKeyboardMarkup(
+            [["Image", "Sketch"]], one_time_keyboard=True, resize_keyboard=True
+        )
+        await update.message.reply_text(
+            "🖼️ Choose the method (Image or Sketch):", reply_markup=keyboard
+        )
+
+        return ConversationState.WAITING_FOR_METHOD
 
     async def handle_reimagine_style(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
@@ -344,6 +491,21 @@ class TelegramRoutes:
         context.user_data["style"] = update.message.text
         await update.message.reply_text("✏️ Now provide a description for reimagining.")
         return ConversationState.WAITING_FOR_PROMPT
+
+    async def handle_method(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> ConversationState:
+        """Handles the selection of method (Image or Sketch)."""
+        method = update.message.text.lower()
+        if method not in ["image", "sketch"]:
+            await update.message.reply_text(
+                "❌ Invalid method. Please choose 'Image' or 'Sketch'."
+            )
+            return ConversationState.WAITING_FOR_METHOD
+
+        context.user_data["method"] = method
+        await update.message.reply_text("📤 Please upload the image or sketch.")
+        return ConversationState.WAITING_FOR_IMAGE
 
     async def handle_reimagine_prompt(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
@@ -361,9 +523,10 @@ class TelegramRoutes:
             params = ReimagineParams(
                 prompt=update.message.text,
                 control_image=context.user_data["control_image"],
-                style=context.user_data.get(
-                    "style", "None"
-                ),  # Include user-selected style
+                style=context.user_data.get("style", "None"),
+                method=context.user_data.get(
+                    "method", "image"
+                ),  # Include the selected method
             )
 
             image_path = self.image_helper.reimagine_image(params)
