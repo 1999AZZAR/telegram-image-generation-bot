@@ -1,4 +1,3 @@
-# models.py
 from dataclasses import dataclass, field
 from typing import List, Tuple, Dict, Optional
 from enum import Enum
@@ -8,6 +7,9 @@ class ConversationState(Enum):
     WAITING_FOR_PROMPT = 0
     WAITING_FOR_SIZE = 1
     WAITING_FOR_STYLE = 2
+    WAITING_FOR_IMAGE = 3
+    WAITING_FOR_FORMAT = 4
+    WAITING_FOR_CONTROL_TYPE = 5
 
 
 @dataclass
@@ -51,3 +53,15 @@ class GenerationParams:
     prompt: str
     style: str = "None"
     size: str = "square"
+    control_image: Optional[str] = None  # Added for control-based generation
+
+
+@dataclass
+class ReimagineParams:
+    prompt: str
+    control_image: str
+    control_strength: float = 0.83
+    negative_prompt: str = "2 faces, 2 heads, bad anatomy, blurry, cloned face, cropped image, cut-off, deformed hands, disconnected limbs, disgusting, disfigured, draft, duplicate artifact, extra fingers, extra limb, floating limbs, gloss proportions, grain, gross proportions, long body, long neck, low-res, mangled, malformed, malformed hands, missing arms, missing limb, morbid, mutation, mutated, mutated hands, mutilated, mutilated hands, multiple heads, negative aspect, out of frame, poorly drawn, poorly drawn face, poorly drawn hands, signatures, surreal, tiling, twisted fingers, ugly"
+    seed: int = 0
+    output_format: str = "jpeg"
+    style: str = "None"

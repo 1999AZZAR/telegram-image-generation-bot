@@ -1,4 +1,3 @@
-# main.py
 import logging
 from telegram.ext import (
     Application,
@@ -7,6 +6,7 @@ from telegram.ext import (
     ConversationHandler,
     filters,
 )
+from PIL import Image
 from dotenv import load_dotenv
 import os
 
@@ -37,14 +37,22 @@ class TelegramBot:
     def _create_application(self) -> Application:
         app = Application.builder().token(os.getenv("TELEGRAM_BOT_TOKEN")).build()
 
-        # Add conversation handler
-        conv_handler = ConversationHandler(
+        # Add conversation handler for image generation
+        conv_handler_image = ConversationHandler(
             entry_points=[CommandHandler("image", self.routes.image_command)],
             states={
                 ConversationState.WAITING_FOR_PROMPT: [
                     MessageHandler(
                         filters.TEXT & ~filters.COMMAND, self.routes.handle_prompt
                     )
+                ],
+                ConversationState.WAITING_FOR_CONTROL_TYPE: [  # 🔥 Add this line
+                    MessageHandler(
+                        filters.TEXT & ~filters.COMMAND, self.routes.handle_control_type
+                    )
+                ],
+                ConversationState.WAITING_FOR_IMAGE: [
+                    MessageHandler(filters.PHOTO, self.routes.handle_image)
                 ],
                 ConversationState.WAITING_FOR_SIZE: [
                     MessageHandler(
@@ -60,10 +68,56 @@ class TelegramBot:
             fallbacks=[CommandHandler("cancel", self.routes.cancel_command)],
         )
 
-        # Add handlers
+        # Add conversation handler for image upscaling
+        conv_handler_upscale = ConversationHandler(
+            entry_points=[CommandHandler("upscale", self.routes.upscale_command)],
+            states={
+                ConversationState.WAITING_FOR_IMAGE: [
+                    MessageHandler(filters.PHOTO, self.routes.handle_image)
+                ],
+                ConversationState.WAITING_FOR_FORMAT: [
+                    MessageHandler(
+                        filters.TEXT & ~filters.COMMAND, self.routes.handle_format
+                    )
+                ],
+            },
+            fallbacks=[CommandHandler("cancel", self.routes.cancel_command)],
+        )
+
+        # Add conversation handler for image reimaginer
+        conv_handler_reimagine = ConversationHandler(
+            entry_points=[CommandHandler("reimagine", self.routes.reimagine_command)],
+            states={
+                ConversationState.WAITING_FOR_IMAGE: [
+                    MessageHandler(filters.PHOTO, self.routes.handle_image)
+                ],
+                ConversationState.WAITING_FOR_STYLE: [
+                    MessageHandler(
+                        filters.TEXT & ~filters.COMMAND,
+                        self.routes.handle_reimagine_style,
+                    )
+                ],
+                ConversationState.WAITING_FOR_PROMPT: [
+                    MessageHandler(
+                        filters.TEXT & ~filters.COMMAND,
+                        self.routes.handle_reimagine_prompt,
+                    )
+                ],
+                ConversationState.WAITING_FOR_FORMAT: [  # ✅ Add this line to fix the error
+                    MessageHandler(
+                        filters.TEXT & ~filters.COMMAND, self.routes.handle_format
+                    )
+                ],
+            },
+            fallbacks=[CommandHandler("cancel", self.routes.cancel_command)],
+        )
+
+        # Add all handlers
         app.add_handler(CommandHandler("start", self.routes.start_command))
         app.add_handler(CommandHandler("help", self.routes.help_command))
-        app.add_handler(conv_handler)
+        app.add_handler(conv_handler_image)
+        app.add_handler(conv_handler_upscale)
+        app.add_handler(conv_handler_reimagine)
 
         return app
 
