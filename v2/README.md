@@ -38,10 +38,6 @@ The **AI Image Assistant Bot** is a Telegram bot designed to assist users in gen
 ## Flowchart
 
 ```mermaid
----
-config:
-  layout: elk
----
 flowchart TD
     A["Start"] --> B[/"start Command"/]
     B --> C{"Is User Authorized?"}
