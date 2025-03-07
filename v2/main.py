@@ -5,6 +5,7 @@ from telegram.ext import (
     MessageHandler,
     ConversationHandler,
     filters,
+    CallbackQueryHandler,
 )
 from PIL import Image
 from dotenv import load_dotenv
@@ -137,6 +138,15 @@ class TelegramBot:
         # Add all handlers
         app.add_handler(CommandHandler("start", self.routes.start_command))
         app.add_handler(CommandHandler("help", self.routes.help_command))
+        app.add_handler(
+            CommandHandler("set_watermark", self.routes.set_watermark_command)
+        )
+        app.add_handler(
+            CallbackQueryHandler(
+                self.routes.watermark_callback, pattern="set_watermark_.*"
+            )
+        )
+
         app.add_handler(conv_handler_image)
         app.add_handler(conv_handler_upscale)
         app.add_handler(conv_handler_reimagine)

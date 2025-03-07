@@ -1,4 +1,10 @@
-from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
+from telegram import (
+    Update,
+    ReplyKeyboardMarkup,
+    ReplyKeyboardRemove,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+)
 from telegram.ext import (
     ContextTypes,
     ConversationHandler,
@@ -60,6 +66,7 @@ class TelegramRoutes:
             "🎨 */image* - Generate a new AI image from a text description.\n"
             "🔄 */reimagine* - Modify an existing image based on a new concept.\n"
             "📈 */upscale* - Enhance the resolution and quality of an image.\n"
+            "⚙️ */set_watermark* - Toggle watermarking (Admins only).\n"
             "❌ */cancel* - Cancel the current operation.\n\n"
             "✨ *Tips for Best Results:*\n"
             "• Be detailed in your prompts for more accurate results.\n"
@@ -67,7 +74,65 @@ class TelegramRoutes:
             "• Try different sizes and aspect ratios for better framing.\n\n"
             "Need help? Just start a command and follow the instructions! 🚀"
         )
+
         await update.message.reply_text(help_text, parse_mode="Markdown")
+
+    async def set_watermark_command(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Displays current watermark status and allows admin to toggle it."""
+        user_id = str(update.message.from_user.id)
+
+        if not self.auth_helper.is_admin(user_id):
+            await update.message.reply_text(
+                "❌ You are not authorized to change this setting."
+            )
+            return
+
+        # Get current status
+        status = "ON ✅" if self.image_helper.watermark_enabled else "OFF ❌"
+
+        # Inline keyboard buttons
+        keyboard = [
+            [
+                InlineKeyboardButton("Enable ✅", callback_data="set_watermark_on"),
+                InlineKeyboardButton("Disable ❌", callback_data="set_watermark_off"),
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await update.message.reply_text(
+            f"⚙️ *Watermark Status:* {status}\n\n"
+            "🔽 Choose an option below to update:",
+            reply_markup=reply_markup,
+            parse_mode="Markdown",
+        )
+
+    async def watermark_callback(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Handles admin button clicks for watermark toggle."""
+        query = update.callback_query
+        await query.answer()
+
+        if not self.auth_helper.is_admin(str(query.from_user.id)):
+            await query.edit_message_text(
+                "❌ You are not authorized to change this setting."
+            )
+            return
+
+        # Toggle watermark based on button pressed
+        if query.data == "set_watermark_on":
+            self.image_helper.set_watermark_status(True)
+            new_status = "ON ✅"
+        else:
+            self.image_helper.set_watermark_status(False)
+            new_status = "OFF ❌"
+
+        # Update message with new status
+        await query.edit_message_text(
+            f"⚙️ *Watermark Status Updated:* {new_status}", parse_mode="Markdown"
+        )
 
     async def image_command(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE

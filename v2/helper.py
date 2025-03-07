@@ -32,10 +32,25 @@ class ImageHelper:
         os.makedirs(self.output_directory, exist_ok=True)
         self.logger = logging.getLogger(__name__)
 
+        # Watermark control (default: enabled)
+        self.watermark_enabled = (
+            os.getenv("WATERMARK_ENABLED", "true").lower() == "true"
+        )
+
+    def set_watermark_status(self, status: bool):
+        """Allows admin to enable or disable watermarking."""
+        self.watermark_enabled = status
+        os.environ["WATERMARK_ENABLED"] = "true" if status else "false"
+
     def _add_watermark(
         self, input_path: str, output_path: str, watermark_path: Optional[str] = None
-    ) -> None:
-        if not watermark_path or not os.path.exists(watermark_path):
+    ):
+        """Applies watermark only if enabled."""
+        if (
+            not self.watermark_enabled
+            or not watermark_path
+            or not os.path.exists(watermark_path)
+        ):
             Image.open(input_path).save(output_path)
             return
 
@@ -68,7 +83,6 @@ class ImageHelper:
         try:
             response = requests.post(
                 "https://api.stability.ai/v1/generation/stable-diffusion-v1-6/text-to-image",
-                # "https://api.stability.ai/v1/generation/stable-diffusion-xl-1024-v1-0/text-to-image",
                 headers={
                     "Content-Type": "application/json",
                     "Accept": "application/json",

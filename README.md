@@ -45,8 +45,9 @@ Follow these steps to set up and run the Telegram bot:
 ### 2.1 Prerequisites
 
 - Python 3.11 or higher installed on your system.
-- Required libraries: `python-telegram-bot`, `requests`, `dotenv`. Install them using:
 
+- Required libraries: `python-telegram-bot`, `requests`, `dotenv`. Install them using:
+  
   ```bash
   pip install python-telegram-bot requests python-dotenv
   ```
@@ -54,15 +55,16 @@ Follow these steps to set up and run the Telegram bot:
 ### 2.2 Setting up Environment Variables
 
 1. Create a `.env` file in the project directory.
+
 2. Add the following entries to the `.env` file:
-
-    ```dotenv
-    STABILITY_API_KEY=your_stability_api_key
-    TELEGRAM_BOT_TOKEN=your_telegram_bot_token
-    USER_ID="*" # comma for separation, '*' to enable all user access.
-    ADMIN_ID="*" # comma for separation, '*' to enable all user access.
-    ```
-
+   
+   ```dotenv
+   STABILITY_API_KEY=your_stability_api_key
+   TELEGRAM_BOT_TOKEN=your_telegram_bot_token
+   USER_ID="*" # comma for separation, '*' to enable all user access.
+   ADMIN_ID="*" # comma for separation, '*' to enable all user access.
+   ```
+   
     Replace `your_stability_api_key`, `your_telegram_bot_token` and user and/or admin id  with your Stability AI API key, Telegram bot token and telegram id, respectively.
 
 ### 2.3 Running the Bot
@@ -153,7 +155,6 @@ style K fill:#092635,stroke:#000,stroke-width:2px;
 style M fill:#C21292,stroke:#000,stroke-width:0px;
 style HelperFunctions fill:#711DB0,stroke:#000,stroke-width:3px;
 style MainFunction fill:#FFA732,stroke:#000,stroke-width:3px;
-
 ```
 
 ## 6. Notes
