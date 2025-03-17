@@ -16,6 +16,7 @@ from telegram.constants import ChatAction
 import logging
 import os
 import asyncio
+import time
 
 from helper import AuthHelper, ImageHelper
 from models import ConversationState, ImageConfig, GenerationParams, ReimagineParams
@@ -27,9 +28,14 @@ class TelegramRoutes:
         self.image_helper = image_helper
         self.logger = logging.getLogger(__name__)
 
+    async def _update_last_message_time(self, context: ContextTypes.DEFAULT_TYPE):
+        """Updates the last message time in user_data."""
+        context.user_data["last_message_time"] = time.time()
+
     async def start_command(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> None:
+        await self._update_last_message_time(context)
         """Handles the /start command to introduce the bot and its features."""
         if not self.auth_helper.is_user(str(update.message.from_user.id)):
             await update.message.reply_text(
@@ -54,6 +60,7 @@ class TelegramRoutes:
     async def help_command(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> None:
+        await self._update_last_message_time(context)
         """Displays a help message with all available bot commands."""
         if not self.auth_helper.is_user(str(update.message.from_user.id)):
             await update.message.reply_text(
@@ -80,6 +87,7 @@ class TelegramRoutes:
     async def set_watermark_command(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> None:
+        await self._update_last_message_time(context)
         """Displays current watermark status and allows admin to toggle it."""
         user_id = str(update.message.from_user.id)
 
@@ -111,6 +119,7 @@ class TelegramRoutes:
     async def watermark_callback(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> None:
+        await self._update_last_message_time(context)
         """Handles admin button clicks for watermark toggle."""
         query = update.callback_query
         await query.answer()
@@ -137,6 +146,7 @@ class TelegramRoutes:
     async def image_command(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> ConversationState:
+        await self._update_last_message_time(context)
         if not self.auth_helper.is_user(str(update.message.from_user.id)):
             await update.message.reply_text(
                 "🔒 Sorry, you are not authorized to use this bot."
@@ -152,6 +162,7 @@ class TelegramRoutes:
     async def handle_prompt(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> ConversationState:
+        await self._update_last_message_time(context)
         context.user_data["prompt"] = update.message.text
 
         # Ask user whether they want Regular or Control-Based generation
@@ -167,6 +178,7 @@ class TelegramRoutes:
     async def handle_control_type(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> ConversationState:
+        await self._update_last_message_time(context)
         choice = update.message.text
         context.user_data["generation_type"] = choice
 
@@ -187,6 +199,7 @@ class TelegramRoutes:
     async def handle_size(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> ConversationState:
+        await self._update_last_message_time(context)
         context.user_data["size"] = update.message.text
 
         # Instantiate ImageConfig
@@ -200,6 +213,7 @@ class TelegramRoutes:
     async def handle_style(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> int:
+        await self._update_last_message_time(context)
         """Handles style selection for both image generation and creative upscaling."""
         style = update.message.text
         context.user_data["style"] = style
@@ -297,6 +311,7 @@ class TelegramRoutes:
     async def upscale_command(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> ConversationState:
+        await self._update_last_message_time(context)
         """Handles /upscale command and asks user to select the upscaling method."""
         if not self.auth_helper.is_user(str(update.message.from_user.id)):
             await update.message.reply_text(
@@ -323,6 +338,7 @@ class TelegramRoutes:
     async def handle_upscale_prompt(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> ConversationState:
+        await self._update_last_message_time(context)
         """Handles the input of the upscaling prompt."""
         context.user_data["upscale_prompt"] = update.message.text
 
@@ -349,6 +365,7 @@ class TelegramRoutes:
     async def handle_upscale_method(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> ConversationState:
+        await self._update_last_message_time(context)
         """Handles the selection of upscaling method (conservative, creative, fast)."""
         method = update.message.text.lower()
         if method not in ["conservative", "creative", "fast"]:
@@ -372,6 +389,7 @@ class TelegramRoutes:
     async def handle_image(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> ConversationState:
+        await self._update_last_message_time(context)
         """Handles image upload for reimagine, upscale, and control-based generation."""
         try:
             self.logger.info("📸 User sent an image. Requesting file from Telegram...")
@@ -458,6 +476,7 @@ class TelegramRoutes:
     async def handle_format(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> int:
+        await self._update_last_message_time(context)
         """Handles image upscaling and sends back the result as a file."""
         upscale_method = context.user_data.get("upscale_method", "fast")
 
@@ -521,6 +540,7 @@ class TelegramRoutes:
     async def cancel_command(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> int:
+        await self._update_last_message_time(context)
         await update.message.reply_text(
             "Operation cancelled.", reply_markup=ReplyKeyboardRemove()
         )
@@ -529,6 +549,7 @@ class TelegramRoutes:
     async def reimagine_command(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> ConversationState:
+        await self._update_last_message_time(context)
         """Handles the /reimagine command."""
         if not self.auth_helper.is_user(str(update.message.from_user.id)):
             await update.message.reply_text(
@@ -552,6 +573,7 @@ class TelegramRoutes:
     async def handle_reimagine_style(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> ConversationState:
+        await self._update_last_message_time(context)
         """Stores the selected style and asks for a reimagine description."""
         context.user_data["style"] = update.message.text
         await update.message.reply_text("✏️ Now provide a description for reimagining.")
@@ -560,6 +582,7 @@ class TelegramRoutes:
     async def handle_method(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> ConversationState:
+        await self._update_last_message_time(context)
         """Handles the selection of method (Image or Sketch)."""
         method = update.message.text.lower()
         if method not in ["image", "sketch"]:
@@ -575,6 +598,7 @@ class TelegramRoutes:
     async def handle_reimagine_prompt(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> int:
+        await self._update_last_message_time(context)
         """Handles reimagine prompt input and starts image transformation."""
         await update.message.reply_text(
             "✨ Reimagining your image...", reply_markup=ReplyKeyboardRemove()

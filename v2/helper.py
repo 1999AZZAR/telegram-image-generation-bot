@@ -291,6 +291,11 @@ class ImageHelper:
                             with open(upscaled_path, "wb") as f:
                                 f.write(image_response.content)
 
+                            # Add watermark
+                            self._add_watermark(
+                                upscaled_path, upscaled_path, "logo.png"
+                            )
+
                             self.logger.info(
                                 f"✅ Upscaled image saved as: {upscaled_path}"
                             )
@@ -317,6 +322,9 @@ class ImageHelper:
                 )
                 with open(upscaled_path, "wb") as f:
                     f.write(response.content)
+
+                # Add watermark
+                self._add_watermark(upscaled_path, upscaled_path, "logo.png")
 
                 self.logger.info(f"✅ Upscaled image saved as: {upscaled_path}")
                 return upscaled_path
@@ -369,6 +377,9 @@ class ImageHelper:
             output_path = f"{self.output_directory}/reimagined_{filename}_{params.seed}.{params.output_format}"
             with open(output_path, "wb") as f:
                 f.write(output_image)
+
+            # Add watermark
+            self._add_watermark(output_path, output_path, "logo.png")
 
             self.logger.info(f"✅ Reimagined image saved as: {output_path}")
             return output_path
