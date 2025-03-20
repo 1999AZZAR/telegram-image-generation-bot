@@ -7,32 +7,31 @@ from telegram.ext import (
     filters,
     CallbackQueryHandler,
     JobQueue,
-    ContextTypes,  # Import ContextTypes
+    ContextTypes,
 )
 from PIL import Image
 from dotenv import load_dotenv
+import sys
 import os
 import asyncio
-import time  # Import time for timeout functionality
+import time
+from colorlog import ColoredFormatter
 
 from models import ConversationState
 from helper import AuthHelper, ImageHelper
 from routes import TelegramRoutes
 
 # Timeout duration in seconds
-TIMEOUT_DURATION = 300  # 5 minutes
+LOOP_TIMEOUT_DURATION = 60  # 1 minute for individual steps
+STALL_TIMEOUT_DURATION = 180  # 3 minutes for overall inactivity
 
 
 class TelegramBot:
     def __init__(self):
         load_dotenv()
 
-        # Setup logging
-        logging.basicConfig(
-            format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-            level=logging.INFO,
-        )
-        self.logger = logging.getLogger(__name__)
+        # Initialize logging
+        self._setup_logging()
 
         # Initialize helpers and routes
         self.auth_helper = AuthHelper()
@@ -41,6 +40,39 @@ class TelegramBot:
 
         # Setup application
         self.application = self._create_application()
+
+    def _setup_logging(self):
+        """Set up logging with a custom format and suppress unnecessary logs."""
+        # Create a logger
+        self.logger = logging.getLogger(__name__)
+        self.logger.setLevel(logging.INFO)
+
+        # Suppress logs from third-party libraries
+        logging.getLogger("telegram").setLevel(logging.WARNING)
+        logging.getLogger("requests").setLevel(logging.WARNING)
+        logging.getLogger("urllib3").setLevel(logging.WARNING)
+        logging.getLogger("PIL").setLevel(logging.WARNING)
+
+        # Create a console handler with colorized output (optional)
+        console_handler = logging.StreamHandler(sys.stdout)
+        console_formatter = ColoredFormatter(
+            "%(log_color)s%(asctime)s - %(levelname)s - %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+            log_colors={
+                "DEBUG": "cyan",
+                "INFO": "green",
+                "WARNING": "yellow",
+                "ERROR": "red",
+                "CRITICAL": "red,bg_white",
+            },
+        )
+        console_handler.setFormatter(console_formatter)
+
+        # Add the handler to the logger
+        self.logger.addHandler(console_handler)
+
+        # Log the start of the application
+        self.logger.info("Logging setup complete. Starting bot...")
 
     def _create_application(self) -> Application:
         app = Application.builder().token(os.getenv("TELEGRAM_BOT_TOKEN")).build()
@@ -159,7 +191,11 @@ class TelegramBot:
         app.add_handler(conv_handler_reimagine)
 
         # Add job queue for timeout
-        app.job_queue.run_repeating(self._check_timeout, interval=60.0)
+        app.job_queue.run_repeating(
+            self._check_timeout,
+            interval=10.0,  # Run every 10 seconds
+            first=10.0,  # Start after 10 seconds
+        )
 
         return app
 
@@ -168,12 +204,27 @@ class TelegramBot:
         for chat_id, user_data in context.application.user_data.items():
             if "last_message_time" in user_data:
                 elapsed_time = time.time() - user_data["last_message_time"]
-                if elapsed_time > TIMEOUT_DURATION:
+
+                # Check for stall timeout (3 minutes of inactivity)
+                if elapsed_time > STALL_TIMEOUT_DURATION:
                     await context.bot.send_message(
                         chat_id=chat_id,
                         text="⏳ Your session has timed out due to inactivity. Please start over.",
                     )
-                    user_data.clear()
+                    user_data.clear()  # Clear user data to reset the conversation
+                    continue
+
+                # Check for loop timeout (1 minute for individual steps)
+                if (
+                    "current_state" in user_data
+                    and elapsed_time > LOOP_TIMEOUT_DURATION
+                ):
+                    await context.bot.send_message(
+                        chat_id=chat_id,
+                        text="⏳ You took too long to respond. Please restart the current step.",
+                    )
+                    # Reset the last message time to give the user another chance
+                    user_data["last_message_time"] = time.time()
 
     def run(self):
         self.logger.info("Starting bot...")

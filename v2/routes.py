@@ -147,6 +147,9 @@ class TelegramRoutes:
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> ConversationState:
         await self._update_last_message_time(context)
+        context.user_data[
+            "current_state"
+        ] = "WAITING_FOR_PROMPT"  # Track the current state
         if not self.auth_helper.is_user(str(update.message.from_user.id)):
             await update.message.reply_text(
                 "🔒 Sorry, you are not authorized to use this bot."
@@ -164,6 +167,9 @@ class TelegramRoutes:
     ) -> ConversationState:
         await self._update_last_message_time(context)
         context.user_data["prompt"] = update.message.text
+        context.user_data[
+            "current_state"
+        ] = "WAITING_FOR_CONTROL_TYPE"  # Track the current state
 
         # Ask user whether they want Regular or Control-Based generation
         keyboard = ReplyKeyboardMarkup(
@@ -181,6 +187,9 @@ class TelegramRoutes:
         await self._update_last_message_time(context)
         choice = update.message.text
         context.user_data["generation_type"] = choice
+        context.user_data[
+            "current_state"
+        ] = "WAITING_FOR_SIZE"  # Track the current state
 
         if choice == "Control-Based":
             await update.message.reply_text("📤 Please upload the reference image.")
@@ -201,6 +210,9 @@ class TelegramRoutes:
     ) -> ConversationState:
         await self._update_last_message_time(context)
         context.user_data["size"] = update.message.text
+        context.user_data[
+            "current_state"
+        ] = "WAITING_FOR_STYLE"  # Track the current state
 
         # Instantiate ImageConfig
         image_config = ImageConfig()
@@ -219,6 +231,8 @@ class TelegramRoutes:
         context.user_data["style"] = style
 
         generation_type = context.user_data.get("generation_type")
+        if "current_state" in context.user_data:
+            del context.user_data["current_state"]  # Clear the current state
 
         if generation_type == "Reimagine":
             # Handle reimagine flow
@@ -458,6 +472,8 @@ class TelegramRoutes:
                 await update.message.reply_text(
                     "❌ Something went wrong. Please restart the command."
                 )
+                if "current_state" in context.user_data:
+                    del context.user_data["current_state"]  # Clear the current state
                 return ConversationHandler.END
 
         except asyncio.TimeoutError:
@@ -471,6 +487,8 @@ class TelegramRoutes:
             await update.message.reply_text(
                 "❌ Failed to download image. Please try again."
             )
+            if "current_state" in context.user_data:
+                del context.user_data["current_state"]  # Clear the current state
             return ConversationHandler.END
 
     async def handle_format(
@@ -534,6 +552,8 @@ class TelegramRoutes:
             await update.message.reply_text(
                 "❌ Sorry, there was an error upscaling your image. Please try again."
             )
+            if "current_state" in context.user_data:
+                del context.user_data["current_state"]  # Clear the current state
 
         return ConversationHandler.END
 
@@ -544,6 +564,8 @@ class TelegramRoutes:
         await update.message.reply_text(
             "Operation cancelled.", reply_markup=ReplyKeyboardRemove()
         )
+        if "current_state" in context.user_data:
+            del context.user_data["current_state"]  # Clear the current state
         return ConversationHandler.END
 
     async def reimagine_command(
@@ -637,5 +659,7 @@ class TelegramRoutes:
             await update.message.reply_text(
                 "❌ Sorry, there was an error reimagining your image. Please try again."
             )
+            if "current_state" in context.user_data:
+                del context.user_data["current_state"]  # Clear the current state
 
         return ConversationHandler.END
