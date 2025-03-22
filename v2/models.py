@@ -1,18 +1,24 @@
 from dataclasses import dataclass, field
 from typing import List, Tuple, Dict, Optional
-from enum import Enum
+
+# from enum import Enum
+from enum import Enum, auto
 
 
 class ConversationState(Enum):
-    WAITING_FOR_PROMPT = 0
-    WAITING_FOR_SIZE = 1
-    WAITING_FOR_STYLE = 2
-    WAITING_FOR_IMAGE = 3
-    WAITING_FOR_FORMAT = 4
-    WAITING_FOR_CONTROL_TYPE = 5
-    WAITING_FOR_METHOD = 6
-    WAITING_FOR_UPSCALE_METHOD = 7
-    WAITING_FOR_UPSCALE_PROMPT = 8
+    WAITING_FOR_PROMPT = auto()
+    WAITING_FOR_CONTROL_TYPE = auto()
+    WAITING_FOR_IMAGE = auto()
+    WAITING_FOR_SIZE = auto()
+    WAITING_FOR_STYLE = auto()
+    WAITING_FOR_UPSCALE_METHOD = auto()
+    WAITING_FOR_UPSCALE_PROMPT = auto()
+    WAITING_FOR_FORMAT = auto()
+    WAITING_FOR_METHOD = auto()
+    WAITING_FOR_REIMAGINE_PROMPT = auto()
+    WAITING_FOR_PROMPT_V2 = auto()
+    WAITING_FOR_ASPECT_RATIO_V2 = auto()
+    WAITING_FOR_IMAGE_V2 = auto()
 
 
 @dataclass

@@ -79,7 +79,7 @@ class TelegramBot:
 
         # Add conversation handler for image generation
         conv_handler_image = ConversationHandler(
-            entry_points=[CommandHandler("image", self.routes.image_command)],
+            entry_points=[CommandHandler("imagine", self.routes.image_command)],
             states={
                 ConversationState.WAITING_FOR_PROMPT: [
                     MessageHandler(
@@ -174,6 +174,29 @@ class TelegramBot:
             fallbacks=[CommandHandler("cancel", self.routes.cancel_command)],
         )
 
+        # Add conversation handler for the new /imagine_v2 command
+        conv_handler_imagine_v2 = ConversationHandler(
+            entry_points=[CommandHandler("imaginev2", self.routes.imagine_v2_command)],
+            states={
+                ConversationState.WAITING_FOR_PROMPT_V2: [
+                    MessageHandler(
+                        filters.TEXT & ~filters.COMMAND, self.routes.handle_prompt_v2
+                    )
+                ],
+                ConversationState.WAITING_FOR_ASPECT_RATIO_V2: [
+                    MessageHandler(
+                        filters.TEXT & ~filters.COMMAND,
+                        self.routes.handle_aspect_ratio_v2,
+                    )
+                ],
+                ConversationState.WAITING_FOR_IMAGE_V2: [
+                    MessageHandler(filters.PHOTO, self.routes.handle_image_v2),
+                    CommandHandler("skip", self.routes.handle_image_v2),
+                ],
+            },
+            fallbacks=[CommandHandler("cancel", self.routes.cancel_command)],
+        )
+
         # Add all handlers
         app.add_handler(CommandHandler("start", self.routes.start_command))
         app.add_handler(CommandHandler("help", self.routes.help_command))
@@ -187,6 +210,7 @@ class TelegramBot:
         )
 
         app.add_handler(conv_handler_image)
+        app.add_handler(conv_handler_imagine_v2)
         app.add_handler(conv_handler_upscale)
         app.add_handler(conv_handler_reimagine)
 

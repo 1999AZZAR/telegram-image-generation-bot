@@ -55,32 +55,32 @@ class ImageHelper:
             return
 
         try:
+            self.logger.info(f"Applying watermark to {input_path}")
             original = Image.open(input_path)
             watermark = Image.open(watermark_path)
 
-            # Resize watermark
             min_dimension = min(original.size)
             watermark_size = (int(min_dimension * 0.14),) * 2
             watermark = watermark.resize(watermark_size)
             watermark = watermark.convert("RGBA")
 
-            # Apply watermark
             result = original.copy()
             position = (0, original.size[1] - watermark_size[1])
 
-            # Adjust transparency
             alpha = watermark.split()[3]
             alpha = ImageEnhance.Brightness(alpha).enhance(0.25)
             watermark.putalpha(alpha)
 
             result.paste(watermark, position, watermark)
             result.save(output_path)
+            self.logger.info(f"Watermark applied successfully to {output_path}")
         except Exception as e:
-            self.logger.error(f"Watermark error: {e}")
+            self.logger.error(f"Watermark error: {e}", exc_info=True)
             original.save(output_path)
 
     def generate_image(self, params: GenerationParams) -> Optional[str]:
         try:
+            self.logger.info(f"Generating image with prompt: {params.prompt}")
             response = requests.post(
                 "https://api.stability.ai/v1/generation/stable-diffusion-v1-6/text-to-image",
                 headers={
@@ -94,19 +94,132 @@ class ImageHelper:
             response.raise_for_status()
             data = response.json()
 
-            # Save image
             output_path = (
                 f'{self.output_directory}/txt2img_{data["artifacts"][0]["seed"]}.png'
             )
             with open(output_path, "wb") as f:
                 f.write(base64.b64decode(data["artifacts"][0]["base64"]))
 
-            # Add watermark
             self._add_watermark(output_path, output_path, "logo.png")
-
+            self.logger.info(f"Image generated and saved at {output_path}")
             return output_path
         except Exception as e:
-            self.logger.error(f"Image generation error: {e}")
+            self.logger.error(f"Image generation error: {e}", exc_info=True)
+            return None
+
+    def generate_image_v2(
+        self,
+        prompt: str,
+        output_format: str = "png",
+        image: Optional[str] = None,
+        strength: Optional[float] = None,  # Add strength parameter
+        aspect_ratio: Optional[str] = None,
+    ) -> Optional[str]:
+        """
+        Generates an image using the new Stability AI v2beta endpoint.
+
+        Args:
+            prompt (str): The text prompt for image generation.
+            output_format (str): The format of the output image (e.g., "png", "webp").
+            image (Optional[str]): Path to the image to use as the starting point.
+            strength (Optional[float]): Controls the influence of the input image on the output (required if image is provided).
+            aspect_ratio (Optional[str]): The aspect ratio of the output image.
+
+        Returns:
+            Optional[str]: Path to the generated image, or None if generation fails.
+        """
+        try:
+            self.logger.info(f"Generating image with prompt: {prompt}")
+
+            # Prepare the request data
+            data = {
+                "prompt": prompt,  # Fix typo: "prompt" instead of "prompt"
+                "output_format": output_format,
+            }
+
+            # Add optional parameters if provided
+            if aspect_ratio:
+                data["aspect_ratio"] = aspect_ratio
+
+            # Add the default negative prompt
+            data["negative_prompt"] = (
+                "bad anatomy, blurry, cloned face, cropped image, cut-off, deformed hands, "
+                "disconnected limbs, disgusting, disfigured, draft, duplicate artifact, extra fingers, extra limb, "
+                "floating limbs, gloss proportions, grain, gross proportions, long body, long neck, low-res, mangled, "
+                "malformed, malformed hands, missing arms, missing limb, morbid, mutation, mutated, mutated hands, "
+                "mutilated, mutilated hands, multiple heads, negative aspect, out of frame, poorly drawn, poorly drawn face, "
+                "poorly drawn hands, signatures, surreal, tiling, twisted fingers, ugly"
+            )
+
+            # Prepare the files dictionary
+            files = {"none": ""}  # Required by the API, but no file is needed
+            if image:
+                # Resize the image if it exceeds MAX_PIXELS
+                with Image.open(image) as img:
+                    width, height = img.size
+                    total_pixels = width * height
+                    self.logger.info(
+                        f"📏 Original Image Size: {width}x{height} ({total_pixels} pixels)"
+                    )
+
+                    # Resize if needed
+                    if total_pixels > MAX_PIXELS:
+                        scale_factor = (
+                            MAX_PIXELS / total_pixels
+                        ) ** 0.5  # Keep aspect ratio
+                        new_width = int(width * scale_factor)
+                        new_height = int(height * scale_factor)
+                        self.logger.info(
+                            f"🔄 Resizing image to: {new_width}x{new_height}"
+                        )
+
+                        img = img.resize((new_width, new_height), Image.LANCZOS)
+
+                        # Save the resized image as a temporary file
+                        resized_path = (
+                            f"{self.output_directory}/resized_temp.{output_format}"
+                        )
+                        img.save(resized_path)
+                        image = resized_path  # Use the resized image for generation
+
+                files["image"] = open(image, "rb")
+                if strength is None:
+                    strength = 0.75  # Default strength value if not provided
+                data["strength"] = strength  # Add strength parameter
+
+            # Send the request to the new endpoint
+            response = requests.post(
+                "https://api.stability.ai/v2beta/stable-image/generate/ultra",
+                headers={
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Accept": "image/*",
+                },
+                files=files,  # Send files here
+                data=data,  # Send non-file data here
+            )
+
+            response.raise_for_status()
+
+            # Save the generated image
+            output_path = (
+                f"{self.output_directory}/txt2img_v2_{int(time.time())}.{output_format}"
+            )
+            with open(output_path, "wb") as f:
+                f.write(response.content)
+
+            # Add watermark if enabled
+            self._add_watermark(output_path, output_path, "logo.png")
+
+            self.logger.info(f"Image generated and saved at {output_path}")
+            return output_path
+
+        except requests.exceptions.HTTPError as e:
+            self.logger.error(
+                f"HTTP Error in image generation: {e.response.status_code} - {e.response.text}"
+            )
+            return None
+        except Exception as e:
+            self.logger.error(f"Image generation error: {e}", exc_info=True)
             return None
 
     def _prepare_generation_params(self, params: GenerationParams) -> dict:

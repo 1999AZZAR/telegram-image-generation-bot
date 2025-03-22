@@ -17,9 +17,29 @@ import logging
 import os
 import asyncio
 import time
+import functools
+from typing import Optional
+
 
 from helper import AuthHelper, ImageHelper
 from models import ConversationState, ImageConfig, GenerationParams, ReimagineParams
+
+
+# Centralized error handling decorator
+def handle_errors(func):
+    @functools.wraps(func)
+    async def wrapper(
+        update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs
+    ):
+        try:
+            return await func(update, context, *args, **kwargs)
+        except Exception as e:
+            logger.error(f"Error in {func.__name__}: {e}", exc_info=True)
+            await update.message.reply_text(
+                "❌ An error occurred. Please try again later."
+            )
+
+    return wrapper
 
 
 class TelegramRoutes:
@@ -46,17 +66,19 @@ class TelegramRoutes:
         welcome_message = (
             f"🌟 Welcome, {update.effective_user.first_name}!\n\n"
             "I'm your AI-powered image assistant. Here's what I can do for you:\n\n"
-            "🎨 *Generate Images*: Use /image to create AI-generated artwork from text prompts.\n"
+            "🎨 *Generate Images*: Use /imagine to create AI-generated artwork from text prompts.\n"
+            "🖼️ *Imagine V2*: Use /imagine_v2 to generate images with new image generation model.\n"
             "🔄 *Reimagine Images*: Use /reimagine to transform an existing image based on a new concept.\n"
             "📈 *Upscale Images*: Use /upscale to enhance image quality and resolution.\n\n"
             "🚀 *How to Use Me:*\n"
-            "1️⃣ Choose a command (/image, /reimagine, or /upscale).\n"
+            "1️⃣ Choose a command (/image, /imaginev2, /reimagine, or /upscale).\n"
             "2️⃣ Follow the steps to provide the necessary details (prompt, style, image, etc.).\n"
             "3️⃣ Wait for me to generate your result!\n\n"
             "Use /help for more details about each feature."
         )
         await update.message.reply_text(welcome_message, parse_mode="Markdown")
 
+    @handle_errors
     async def help_command(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> None:
@@ -70,7 +92,8 @@ class TelegramRoutes:
 
         help_text = (
             "🤖 *AI Image Assistant - Commands Guide*\n\n"
-            "🎨 */image* - Generate a new AI image from a text description.\n"
+            "🎨 */imagine* - Generate a new AI image from a text description.\n"
+            "🖼️ */imaginev2* - Generate images with new image generation model.\n"
             "🔄 */reimagine* - Modify an existing image based on a new concept.\n"
             "📈 */upscale* - Enhance the resolution and quality of an image.\n"
             "⚙️ */set_watermark* - Toggle watermarking (Admins only).\n"
@@ -116,6 +139,7 @@ class TelegramRoutes:
             parse_mode="Markdown",
         )
 
+    @handle_errors
     async def watermark_callback(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> None:
@@ -143,6 +167,7 @@ class TelegramRoutes:
             f"⚙️ *Watermark Status Updated:* {new_status}", parse_mode="Markdown"
         )
 
+    @handle_errors
     async def image_command(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> ConversationState:
@@ -162,6 +187,7 @@ class TelegramRoutes:
         )
         return ConversationState.WAITING_FOR_PROMPT
 
+    @handle_errors
     async def handle_prompt(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> ConversationState:
@@ -181,6 +207,7 @@ class TelegramRoutes:
 
         return ConversationState.WAITING_FOR_CONTROL_TYPE
 
+    @handle_errors
     async def handle_control_type(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> ConversationState:
@@ -205,6 +232,7 @@ class TelegramRoutes:
             )
             return ConversationState.WAITING_FOR_SIZE
 
+    @handle_errors
     async def handle_size(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> ConversationState:
@@ -222,6 +250,7 @@ class TelegramRoutes:
         await update.message.reply_text("🎭 Select image style:", reply_markup=keyboard)
         return ConversationState.WAITING_FOR_STYLE
 
+    @handle_errors
     async def handle_style(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> int:
@@ -322,6 +351,7 @@ class TelegramRoutes:
 
         return ConversationHandler.END
 
+    @handle_errors
     async def upscale_command(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> ConversationState:
@@ -349,6 +379,7 @@ class TelegramRoutes:
 
         return ConversationState.WAITING_FOR_UPSCALE_METHOD
 
+    @handle_errors
     async def handle_upscale_prompt(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> ConversationState:
@@ -376,6 +407,7 @@ class TelegramRoutes:
             )
             return ConversationState.WAITING_FOR_IMAGE
 
+    @handle_errors
     async def handle_upscale_method(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> ConversationState:
@@ -400,6 +432,7 @@ class TelegramRoutes:
             )
             return ConversationState.WAITING_FOR_IMAGE
 
+    @handle_errors
     async def handle_image(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> ConversationState:
@@ -491,6 +524,7 @@ class TelegramRoutes:
                 del context.user_data["current_state"]  # Clear the current state
             return ConversationHandler.END
 
+    @handle_errors
     async def handle_format(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> int:
@@ -557,6 +591,7 @@ class TelegramRoutes:
 
         return ConversationHandler.END
 
+    @handle_errors
     async def cancel_command(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> int:
@@ -568,6 +603,7 @@ class TelegramRoutes:
             del context.user_data["current_state"]  # Clear the current state
         return ConversationHandler.END
 
+    @handle_errors
     async def reimagine_command(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> ConversationState:
@@ -592,6 +628,7 @@ class TelegramRoutes:
 
         return ConversationState.WAITING_FOR_METHOD
 
+    @handle_errors
     async def handle_reimagine_style(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> ConversationState:
@@ -601,6 +638,7 @@ class TelegramRoutes:
         await update.message.reply_text("✏️ Now provide a description for reimagining.")
         return ConversationState.WAITING_FOR_PROMPT
 
+    @handle_errors
     async def handle_method(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> ConversationState:
@@ -617,6 +655,7 @@ class TelegramRoutes:
         await update.message.reply_text("📤 Please upload the image or sketch.")
         return ConversationState.WAITING_FOR_IMAGE
 
+    @handle_errors
     async def handle_reimagine_prompt(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> int:
@@ -661,5 +700,125 @@ class TelegramRoutes:
             )
             if "current_state" in context.user_data:
                 del context.user_data["current_state"]  # Clear the current state
+
+        return ConversationHandler.END
+
+    @handle_errors
+    async def imagine_v2_command(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> ConversationState:
+        await self._update_last_message_time(context)
+        """Handles the /imagine_v2 command to start the new image generation flow."""
+        if not self.auth_helper.is_admin(str(update.message.from_user.id)):
+            await update.message.reply_text(
+                "🔒 Sorry, you are not authorized to use this bot."
+            )
+            return ConversationHandler.END
+
+        await update.message.reply_text(
+            "🎨 Please provide a detailed prompt for your image.\n"
+            "Type /cancel to cancel the operation."
+        )
+        return ConversationState.WAITING_FOR_PROMPT_V2
+
+    @handle_errors
+    async def handle_prompt_v2(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> ConversationState:
+        await self._update_last_message_time(context)
+        """Handles the prompt input for the new image generation flow."""
+        context.user_data["prompt"] = update.message.text
+
+        # Provide a keyboard with predefined aspect ratio options
+        aspect_ratio_keyboard = [
+            ["16:9", "1:1", "4:5"],
+            ["9:16", "3:2", "2:3"],
+            ["21:9", "5:4", "9:21"],
+        ]
+        reply_markup = ReplyKeyboardMarkup(
+            aspect_ratio_keyboard, one_time_keyboard=True, resize_keyboard=True
+        )
+
+        await update.message.reply_text(
+            "📐 Please select an aspect ratio from the options below:",
+            reply_markup=reply_markup,
+        )
+        return ConversationState.WAITING_FOR_ASPECT_RATIO_V2
+
+    @handle_errors
+    async def handle_aspect_ratio_v2(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> ConversationState:
+        await self._update_last_message_time(context)
+        """Handles the aspect ratio input for the new image generation flow."""
+        aspect_ratio = update.message.text
+        context.user_data["aspect_ratio"] = aspect_ratio
+
+        await update.message.reply_text(
+            "📤 (Optional) Upload an image to use as the starting point, or type /skip to continue without one.",
+            reply_markup=ReplyKeyboardRemove(),  # Remove the aspect ratio keyboard
+        )
+        return ConversationState.WAITING_FOR_IMAGE_V2
+
+    @handle_errors
+    async def handle_image_v2(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> ConversationState:
+        await self._update_last_message_time(context)
+        """Handles the optional image upload for the new image generation flow."""
+        if update.message.text == "/skip":
+            context.user_data["image"] = None
+        else:
+            try:
+                photo = update.message.photo[-1]
+                file = await context.bot.get_file(photo.file_id)
+                file_path = f"./image/{photo.file_id}.jpg"
+                await asyncio.wait_for(file.download_to_drive(file_path), timeout=60)
+                context.user_data["image"] = file_path
+            except asyncio.TimeoutError:
+                await update.message.reply_text(
+                    "❌ Image download timed out. Please try again."
+                )
+                return ConversationHandler.END
+            except Exception as e:
+                self.logger.error(f"Error during image download: {e}")
+                await update.message.reply_text(
+                    "❌ Failed to download image. Please try again."
+                )
+                return ConversationHandler.END
+
+        await update.message.reply_text(
+            "🖼️ Generating your image...", reply_markup=ReplyKeyboardRemove()
+        )
+
+        try:
+            await context.bot.send_chat_action(
+                chat_id=update.effective_chat.id, action=ChatAction.UPLOAD_PHOTO
+            )
+
+            image_path = self.image_helper.generate_image_v2(
+                prompt=context.user_data["prompt"],
+                output_format="png",
+                image=context.user_data.get("image"),
+                aspect_ratio=context.user_data.get("aspect_ratio"),
+            )
+
+            if not image_path:
+                raise Exception("Image generation failed")
+
+            with open(image_path, "rb") as photo:
+                await context.bot.send_photo(
+                    chat_id=update.effective_chat.id,
+                    photo=photo,
+                    caption="🎨 Here's your generated image!",
+                )
+
+            os.remove(image_path)
+
+        except Exception as e:
+            self.logger.error(f"Error in handle_image_v2: {e}")
+            await update.message.reply_text(
+                "❌ Sorry, there was an error generating your image. Please try again."
+            )
 
         return ConversationHandler.END
