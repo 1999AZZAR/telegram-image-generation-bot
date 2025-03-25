@@ -197,6 +197,30 @@ class TelegramBot:
             fallbacks=[CommandHandler("cancel", self.routes.cancel_command)],
         )
 
+        # Add conversation handler for uncrop/outpaint
+        conv_handler_uncrop = ConversationHandler(
+            entry_points=[CommandHandler("uncrop", self.routes.uncrop_command)],
+            states={
+                ConversationState.WAITING_FOR_UNCROP_IMAGE: [
+                    MessageHandler(filters.PHOTO, self.routes.handle_uncrop_image)
+                ],
+                ConversationState.WAITING_FOR_UNCROP_ASPECT_RATIO: [
+                    MessageHandler(
+                        filters.TEXT & ~filters.COMMAND,
+                        self.routes.handle_uncrop_aspect_ratio,
+                    )
+                ],
+                ConversationState.WAITING_FOR_UNCROP_PROMPT: [
+                    MessageHandler(
+                        filters.TEXT & ~filters.COMMAND,
+                        self.routes.handle_uncrop_prompt,
+                    ),
+                    CommandHandler("skip", self.routes.handle_uncrop_prompt),
+                ],
+            },
+            fallbacks=[CommandHandler("cancel", self.routes.cancel_command)],
+        )
+
         # Add all handlers
         app.add_handler(CommandHandler("start", self.routes.start_command))
         app.add_handler(CommandHandler("help", self.routes.help_command))
@@ -205,7 +229,7 @@ class TelegramBot:
         )
         app.add_handler(
             CallbackQueryHandler(
-                self.routes.watermark_callback, pattern="set_watermark_.*"
+                self.routes.watermark_callback, pattern="^set_watermark_"
             )
         )
 
@@ -213,6 +237,7 @@ class TelegramBot:
         app.add_handler(conv_handler_imagine_v2)
         app.add_handler(conv_handler_upscale)
         app.add_handler(conv_handler_reimagine)
+        app.add_handler(conv_handler_uncrop)
 
         # Add job queue for timeout
         app.job_queue.run_repeating(

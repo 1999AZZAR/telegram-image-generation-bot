@@ -19,6 +19,9 @@ class ConversationState(Enum):
     WAITING_FOR_PROMPT_V2 = auto()
     WAITING_FOR_ASPECT_RATIO_V2 = auto()
     WAITING_FOR_IMAGE_V2 = auto()
+    WAITING_FOR_UNCROP_IMAGE = auto()
+    WAITING_FOR_UNCROP_ASPECT_RATIO = auto()
+    WAITING_FOR_UNCROP_PROMPT = auto()
 
 
 @dataclass
@@ -75,3 +78,13 @@ class ReimagineParams:
     output_format: str = "jpeg"
     style: str = "None"
     method: str = "image"  # New field for method selection (image or sketch)
+
+
+@dataclass
+class UnCropParams:
+    image_path: str
+    target_aspect_ratio: str  # e.g., "16:9", "1:1", "4:5", etc.
+    prompt: str = ""
+    creativity: float = 0.5
+    seed: int = 0
+    output_format: str = "png"

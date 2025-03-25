@@ -22,7 +22,13 @@ from typing import Optional
 
 
 from helper import AuthHelper, ImageHelper
-from models import ConversationState, ImageConfig, GenerationParams, ReimagineParams
+from models import (
+    ConversationState,
+    ImageConfig,
+    GenerationParams,
+    ReimagineParams,
+    UnCropParams,
+)
 
 
 # Centralized error handling decorator
@@ -69,10 +75,11 @@ class TelegramRoutes:
             "🎨 *Generate Images*: Use /imagine to create AI-generated artwork from text prompts.\n"
             "🖼️ *Imagine V2*: Use /imagine_v2 to generate images with new image generation model.\n"
             "🔄 *Reimagine Images*: Use /reimagine to transform an existing image based on a new concept.\n"
-            "📈 *Upscale Images*: Use /upscale to enhance image quality and resolution.\n\n"
+            "📈 *Upscale Images*: Use /upscale to enhance image quality and resolution.\n"
+            "🖼️ *Uncrop/Outpaint*: Use /uncrop to expand images beyond their original borders.\n\n"
             "🚀 *How to Use Me:*\n"
-            "1️⃣ Choose a command (/image, /imaginev2, /reimagine, or /upscale).\n"
-            "2️⃣ Follow the steps to provide the necessary details (prompt, style, image, etc.).\n"
+            "1️⃣ Choose a command (/imagine, /imaginev2, /reimagine, /upscale, or /uncrop).\n"
+            "2️⃣ Follow the steps to provide the necessary details.\n"
             "3️⃣ Wait for me to generate your result!\n\n"
             "Use /help for more details about each feature."
         )
@@ -96,17 +103,20 @@ class TelegramRoutes:
             "🖼️ */imaginev2* - Generate images with new image generation model.\n"
             "🔄 */reimagine* - Modify an existing image based on a new concept.\n"
             "📈 */upscale* - Enhance the resolution and quality of an image.\n"
+            "🖼️ */uncrop* - Expand images beyond their original borders (outpainting).\n"
             "⚙️ */set_watermark* - Toggle watermarking (Admins only).\n"
             "❌ */cancel* - Cancel the current operation.\n\n"
             "✨ *Tips for Best Results:*\n"
             "• Be detailed in your prompts for more accurate results.\n"
-            "• Specify styles, moods, and compositions when needed.\n"
-            "• Try different sizes and aspect ratios for better framing.\n\n"
+            "• For /uncrop, choose aspect ratios that make sense for your image.\n"
+            "• Try different styles and sizes for better results.\n"
+            "• Use simple, clear descriptions for best uncrop/outpaint results.\n\n"
             "Need help? Just start a command and follow the instructions! 🚀"
         )
 
         await update.message.reply_text(help_text, parse_mode="Markdown")
 
+    @handle_errors
     async def set_watermark_command(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> None:
@@ -819,6 +829,124 @@ class TelegramRoutes:
             self.logger.error(f"Error in handle_image_v2: {e}")
             await update.message.reply_text(
                 "❌ Sorry, there was an error generating your image. Please try again."
+            )
+
+        return ConversationHandler.END
+
+    @handle_errors
+    async def uncrop_command(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> ConversationState:
+        await self._update_last_message_time(context)
+        """Handles the /uncrop command to start the outpainting process."""
+        if not self.auth_helper.is_user(str(update.message.from_user.id)):
+            await update.message.reply_text(
+                "🔒 Sorry, you are not authorized to use this bot."
+            )
+            return ConversationHandler.END
+
+        await update.message.reply_text(
+            "🖼️ Please upload the image you want to uncrop (outpaint).\n"
+            "Type /cancel to cancel the operation."
+        )
+        return ConversationState.WAITING_FOR_UNCROP_IMAGE
+
+    @handle_errors
+    async def handle_uncrop_image(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> ConversationState:
+        await self._update_last_message_time(context)
+        """Handles the image upload for uncrop/outpaint."""
+        try:
+            photo = update.message.photo[-1]
+            file = await context.bot.get_file(photo.file_id)
+            file_path = f"./image/{photo.file_id}_uncrop.jpg"
+            await asyncio.wait_for(file.download_to_drive(file_path), timeout=60)
+
+            context.user_data["uncrop_image"] = file_path
+
+            # Provide aspect ratio options
+            aspect_ratio_keyboard = [
+                ["16:9", "1:1", "4:5"],
+                ["9:16", "3:2", "2:3"],
+                ["21:9", "5:4", "9:21"],
+            ]
+            reply_markup = ReplyKeyboardMarkup(
+                aspect_ratio_keyboard, one_time_keyboard=True, resize_keyboard=True
+            )
+
+            await update.message.reply_text(
+                "📐 What aspect ratio would you like for the outpainted image?",
+                reply_markup=reply_markup,
+            )
+            return ConversationState.WAITING_FOR_UNCROP_ASPECT_RATIO
+        except Exception as e:
+            self.logger.error(f"Error in handle_uncrop_image: {e}")
+            await update.message.reply_text(
+                "❌ Failed to process image. Please try again."
+            )
+            return ConversationHandler.END
+
+    @handle_errors
+    async def handle_uncrop_aspect_ratio(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> ConversationState:
+        await self._update_last_message_time(context)
+        """Handles the aspect ratio selection for uncrop/outpaint."""
+        aspect_ratio = update.message.text
+        if ":" not in aspect_ratio or len(aspect_ratio.split(":")) != 2:
+            await update.message.reply_text(
+                "❌ Invalid aspect ratio format. Please use format like '16:9' or select from the options."
+            )
+            return ConversationState.WAITING_FOR_UNCROP_ASPECT_RATIO
+
+        context.user_data["uncrop_aspect_ratio"] = aspect_ratio
+        await update.message.reply_text(
+            "✏️ (Optional) Provide a prompt to guide the outpainting, or type /skip:",
+            reply_markup=ReplyKeyboardRemove(),
+        )
+        return ConversationState.WAITING_FOR_UNCROP_PROMPT
+
+    @handle_errors
+    async def handle_uncrop_prompt(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> int:
+        await self._update_last_message_time(context)
+        """Handles the uncrop prompt and starts the outpainting process."""
+        if update.message.text != "/skip":
+            context.user_data["uncrop_prompt"] = update.message.text
+
+        await update.message.reply_text(
+            "🔄 Performing outpainting (uncrop)... This may take a moment.\n"
+            "⚠️ Note: Large images will be automatically resized to fit API limits."
+        )
+
+        try:
+            params = UnCropParams(
+                image_path=context.user_data["uncrop_image"],
+                target_aspect_ratio=context.user_data["uncrop_aspect_ratio"],
+                prompt=context.user_data.get("uncrop_prompt", ""),
+                output_format="png",
+            )
+
+            image_path = self.image_helper.uncrop_image(params)
+
+            if not image_path:
+                raise Exception("Outpainting failed")
+
+            with open(image_path, "rb") as photo:
+                await context.bot.send_photo(
+                    chat_id=update.effective_chat.id,
+                    photo=photo,
+                    caption="🖼️ Here's your outpainted (uncropped) image!",
+                )
+
+            os.remove(image_path)
+
+        except Exception as e:
+            self.logger.error(f"Error in handle_uncrop_prompt: {e}")
+            await update.message.reply_text(
+                "❌ Sorry, there was an error during outpainting. Please try again with a smaller image."
             )
 
         return ConversationHandler.END

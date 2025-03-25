@@ -7,7 +7,7 @@ import requests
 from PIL import Image, ImageEnhance
 from dotenv import load_dotenv
 
-from models import ImageConfig, GenerationParams, ReimagineParams
+from models import ImageConfig, GenerationParams, ReimagineParams, UnCropParams
 
 MAX_PIXELS = 1_048_576  # Stability AI's max pixel limit
 load_dotenv()
@@ -41,6 +41,9 @@ class ImageHelper:
         """Allows admin to enable or disable watermarking."""
         self.watermark_enabled = status
         os.environ["WATERMARK_ENABLED"] = "true" if status else "false"
+        self.logger.info(
+            f"Watermark status changed to: {'enabled' if status else 'disabled'}"
+        )
 
     def _add_watermark(
         self, input_path: str, output_path: str, watermark_path: Optional[str] = None
@@ -507,4 +510,140 @@ class ImageHelper:
             return None
         except Exception as e:
             self.logger.error(f"❌ General Error in reimagine_image: {e}")
+            return None
+
+    def uncrop_image(self, params: UnCropParams) -> Optional[str]:
+        """Performs outpainting (uncrop) on an image using Stability AI API."""
+        try:
+            # First, check and resize the original image if needed
+            with Image.open(params.image_path) as img:
+                original_width, original_height = img.size
+                original_pixels = original_width * original_height
+
+                # Resize if original image exceeds maximum pixel limit
+                if original_pixels > MAX_PIXELS:
+                    scale_factor = (MAX_PIXELS / original_pixels) ** 0.5
+                    new_width = int(original_width * scale_factor)
+                    new_height = int(original_height * scale_factor)
+
+                    self.logger.info(
+                        f"Resizing original image from {original_width}x{original_height} "
+                        f"to {new_width}x{new_height} to fit API limits"
+                    )
+
+                    img = img.resize((new_width, new_height), Image.LANCZOS)
+                    resized_path = f"{self.output_directory}/resized_{os.path.basename(params.image_path)}"
+                    img.save(resized_path)
+                    params.image_path = resized_path
+                    original_width, original_height = new_width, new_height
+
+                original_ratio = original_width / original_height
+
+                # Parse target aspect ratio
+                try:
+                    ratio_parts = params.target_aspect_ratio.split(":")
+                    target_ratio = float(ratio_parts[0]) / float(ratio_parts[1])
+                except:
+                    self.logger.error(
+                        f"Invalid aspect ratio: {params.target_aspect_ratio}"
+                    )
+                    return None
+
+                # Calculate needed outpaint amounts
+                if target_ratio > original_ratio:
+                    # Need to expand horizontally
+                    new_width = original_height * target_ratio
+                    left = int((new_width - original_width) / 2)
+                    right = left
+                    up = 0
+                    down = 0
+                else:
+                    # Need to expand vertically
+                    new_height = original_width / target_ratio
+                    up = int((new_height - original_height) / 2)
+                    down = up
+                    left = 0
+                    right = 0
+
+                # Ensure we don't exceed API limits (1024px per side)
+                max_expansion = 1024
+                left = min(left, max_expansion)
+                right = min(right, max_expansion)
+                up = min(up, max_expansion)
+                down = min(down, max_expansion)
+
+                # Also ensure the final image doesn't exceed maximum pixels
+                final_width = original_width + left + right
+                final_height = original_height + up + down
+                if final_width * final_height > MAX_PIXELS:
+                    scale_factor = (MAX_PIXELS / (final_width * final_height)) ** 0.5
+                    left = int(left * scale_factor)
+                    right = int(right * scale_factor)
+                    up = int(up * scale_factor)
+                    down = int(down * scale_factor)
+
+                    self.logger.info(
+                        f"Reducing outpaint amounts to fit API limits: "
+                        f"left={left}, right={right}, up={up}, down={down}"
+                    )
+
+                self.logger.info(
+                    f"Outpainting with: left={left}, right={right}, up={up}, down={down}"
+                )
+
+            host = "https://api.stability.ai/v2beta/stable-image/edit/outpaint"
+
+            request_params = {
+                "left": left,
+                "right": right,
+                "up": up,
+                "down": down,
+                "prompt": params.prompt,
+                "creativity": params.creativity,
+                "seed": params.seed,
+                "output_format": params.output_format,
+            }
+
+            with open(params.image_path, "rb") as image_file:
+                response = requests.post(
+                    host,
+                    headers={
+                        "Authorization": f"Bearer {self.api_key}",
+                        "Accept": "image/*",
+                    },
+                    files={"image": image_file},
+                    data=request_params,
+                    timeout=120,
+                )
+
+            response.raise_for_status()
+
+            # Check for NSFW classification
+            if response.headers.get("finish-reason") == "CONTENT_FILTERED":
+                self.logger.warning("Generation failed NSFW classifier")
+                return None
+
+            # Save the generated image
+            filename, _ = os.path.splitext(os.path.basename(params.image_path))
+            output_path = f"{self.output_directory}/uncrop_{filename}_{params.seed}.{params.output_format}"
+            with open(output_path, "wb") as f:
+                f.write(response.content)
+
+            # Add watermark
+            self._add_watermark(output_path, output_path, "logo.png")
+
+            # Clean up temporary resized image if it exists
+            if "resized_" in params.image_path:
+                os.remove(params.image_path)
+
+            self.logger.info(f"✅ Outpainted image saved as: {output_path}")
+            return output_path
+
+        except requests.exceptions.HTTPError as e:
+            self.logger.error(
+                f"HTTP Error in outpainting: {e.response.status_code} - {e.response.text}"
+            )
+            return None
+        except Exception as e:
+            self.logger.error(f"Error in uncrop_image: {e}", exc_info=True)
             return None
