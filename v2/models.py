@@ -22,6 +22,7 @@ class ConversationState(Enum):
     WAITING_FOR_UNCROP_IMAGE = auto()
     WAITING_FOR_UNCROP_ASPECT_RATIO = auto()
     WAITING_FOR_UNCROP_PROMPT = auto()
+    WAITING_FOR_UNCROP_POSITION = auto()
 
 
 @dataclass
@@ -85,6 +86,7 @@ class UnCropParams:
     image_path: str
     target_aspect_ratio: str  # e.g., "16:9", "1:1", "4:5", etc.
     prompt: str = ""
-    creativity: float = 0.5
+    creativity: float = 0.35
     seed: int = 0
     output_format: str = "png"
+    position: str = "auto"  # New field for position control

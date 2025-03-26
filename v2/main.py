@@ -210,6 +210,13 @@ class TelegramBot:
                         self.routes.handle_uncrop_aspect_ratio,
                     )
                 ],
+                ConversationState.WAITING_FOR_UNCROP_POSITION: [
+                    MessageHandler(
+                        filters.TEXT & ~filters.COMMAND,
+                        self.routes.handle_uncrop_position,
+                    ),
+                    CommandHandler("skip", self.routes.handle_uncrop_position),
+                ],
                 ConversationState.WAITING_FOR_UNCROP_PROMPT: [
                     MessageHandler(
                         filters.TEXT & ~filters.COMMAND,

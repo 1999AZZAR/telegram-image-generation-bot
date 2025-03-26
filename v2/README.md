@@ -1,210 +1,215 @@
-# AI Image Assistant Bot v2
+# AI Image Generation Bot - Documentation
 
-The **AI Image Assistant Bot** is a Telegram bot designed to assist users in generating, upscaling, and reimagining images using AI-powered tools. The bot leverages the Stability AI API to provide high-quality image generation and manipulation capabilities. It is built using Python and the `python-telegram-bot` library, making it easy to deploy and use.
+## 📌 Overview
 
-## Features
+This Telegram bot provides advanced AI-powered image generation and manipulation capabilities using Stability AI's API. It offers multiple features including text-to-image generation, image upscaling, reimagining existing images, and outpainting (uncropping).
 
-1. **Image Generation**:
-   
-   - Generate AI-powered images from text prompts.
-   - Choose from various styles (e.g., photographic, digital-art, anime, etc.).
-   - Select different image sizes and aspect ratios (e.g., square, portrait, landscape, etc.).
-   - Control-based image generation using reference images.
+## ✨ Key Features
 
-2. **Image Upscaling**:
-   
-   - Upscale images to higher resolutions using different methods:
-     - **Fast**: Quick upscaling with minimal enhancements.
-     - **Conservative**: Balanced upscaling with moderate enhancements.
-     - **Creative**: Advanced upscaling with creative enhancements based on a prompt.
-   - Choose output formats (e.g., webp, jpeg, png).
+### 🎨 Image Generation
+- Create AI-generated artwork from text prompts (`/imagine`)
+- New generation model with more control (`/imaginev2`)
+- Control-based generation using reference images
 
-3. **Image Reimagining**:
-   
-   - Transform existing images based on new concepts and prompts.
-   - Choose between **Image** and **Sketch** methods for reimagining.
-   - Apply different styles to the reimagined images.
+### 🔄 Image Transformation
+- Reimagine existing images with new concepts (`/reimagine`)
+- Two methods: "Image" (structural transformation) and "Sketch" (style transfer)
 
-4. **Watermark Control**:
-   
-   - Admins can enable or disable watermarking on generated images.
-   - Watermark is applied to the bottom-left corner of the image.
+### 📈 Image Enhancement
+- Upscale images with three methods:
+  - **Conservative**: Maintains original details
+  - **Creative**: Adds new details based on prompt
+  - **Fast**: Quick upscaling with minimal changes
 
-5. **User Authentication**:
-   
-   - Only authorized users can access the bot's features.
-   - Admins have additional privileges, such as toggling watermark settings.
+### 🖼️ Outpainting (Uncrop)
+- Expand images beyond their original borders (`/uncrop`)
+- Control the position of original image in the expanded result
+- 9 position options + automatic positioning
 
-## Flowchart
+### ⚙️ Admin Features
+- Watermark toggle for generated images (`/set_watermark`)
+- Restricted access controls
 
-```mermaid
-flowchart TD
-    A["Start"] --> B[/"start Command"/]
-    B --> C{"Is User Authorized?"}
-    C -- Yes --> D["Send Welcome Message"]
-    C -- No --> E["Send Unauthorized Message"]
-    D --> F{"User Interaction"}
-    E --> Z["End"]
-    F --> G[/"image Command"/] & H[/"upscale Command"/] & I[/"reimagine Command"/] & J[/"set_watermark Command"/] & K[/"help Command"/] & L[/"cancel Command"/]
-    G --> M["Ask for Prompt"]
-    M --> N{"User Provides Prompt"}
-    N -- Yes --> O["Ask for Generation Type"]
-    N -- No --> Z
-    O --> P{"User Chooses Generation Type"}
-    P -- Regular --> Q["Ask for Image Size"]
-    P -- "Control-Based" --> R["Ask for Reference Image"]
-    Q --> S["Ask for Style"]
-    R --> T["Ask for Image Size"]
-    S --> U["Generate Image"]
-    T --> U
-    U --> V["Send Image to User"]
-    V --> Z
-    H --> W["Ask for Upscale Method"]
-    W --> X{"User Chooses Method"}
-    X -- Fast --> AC["Ask for Image"]
-    X -- Conservative --> AA["Ask for Prompt"]
-    X -- Creative --> AB["Ask for Prompt"]
-    AA --> AC["Ask for Image"]
-    AB --> AD["Ask for Style"]
-    AD --> AC
-    AC --> AE["Upscale Image"]
-    AE --> AF["Send Upscaled Image to User"]
-    AF --> Z
-    I --> AG["Ask for Method Image or Sketch"]
-    AG --> AH{"User Chooses Method"}
-    AH -- Image --> AI["Ask for Image"]
-    AH -- Sketch --> AJ["Ask for Sketch"]
-    AI --> AK["Ask for Style"]
-    AJ --> AK
-    AK --> AL["Ask for Prompt"]
-    AL --> AM["Reimagine Image"]
-    AM --> AN["Send Reimagined Image to User"]
-    AN --> Z
-    J --> AO{"Is User Admin?"}
-    AO -- Yes --> AP["Show Watermark Status"]
-    AO -- No --> E["Send Unauthorized Message"]
-    AP --> AR["Ask to Enable/Disable Watermark"]
-    AR --> AS{"User Toggles Watermark"}
-    AS -- Enable --> AT["Enable Watermark"]
-    AS -- Disable --> AU["Disable Watermark"]
-    AT --> AV["Send Confirmation"]
-    AU --> AV
-    AV --> Z
-    K --> AW["Send Help Message"]
-    AW --> Z
-    L --> AX["Cancel Current Operation"]
-    AX --> Z
+## 🛠 Technical Architecture
+
+```
+├── main.py              # Bot initialization and conversation handlers
+├── routes.py            # All bot commands and conversation logic
+├── models.py            # Data classes and enums
+├── helper.py            # Core image processing and API interactions
+└── .env                 # Configuration file
 ```
 
-## Prerequisites
+## 🔧 Setup Instructions
 
-Before running the bot, ensure you have the following:
+### Prerequisites
+- Python 3.9+
+- Telegram bot token
+- Stability AI API key
+- Python virtual environment (recommended)
 
-1. **Python 3.8 or higher** installed on your system.
-
-2. **Telegram Bot Token**: Obtain a bot token by creating a new bot on Telegram using [BotFather](https://core.telegram.org/bots#botfather).
-
-3. **Stability AI API Key**: Sign up for an API key from [Stability AI](https://stability.ai/).
-
-## Installation
-
-1. **Clone the repository**:
-   
+### Installation
+1. Clone the repository
+2. Create and activate virtual environment:
    ```bash
-   git clone https://github.com/1999AZZAR/telegram-image-generation-bot.git
-   cd telegram-image-generation-bot/v2
+   python -m venv venv
+   source venv/bin/activate  # Linux/Mac)
+   venv\Scripts\activate     # Windows
+   ```
+3. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+4. Create `.env` file:
+   ```ini
+   TELEGRAM_BOT_TOKEN=your_bot_token
+   STABILITY_API_KEY=your_stability_key
+   USER_ID=comma_separated_user_ids
+   ADMIN_ID=comma_separated_admin_ids
+   WATERMARK_ENABLED=true
    ```
 
-2. **Install dependencies**:
-   
-   ```bash
-   pip install -r ../requirements.txt
-   ```
+### Running the Bot
+```bash
+python main.py
+```
 
-3. **Set up environment variables**:
-   
-   - **Environment Variables**:
-     
-     - Create a `.env` file in the root directory and add the required environment variables with the following variables:
-       
-       ```plaintext
-       STABILITY_API_KEY=your_stability_api_key
-       TELEGRAM_BOT_TOKEN=your_telegram_bot_token
-       USER_ID="*" # comma for separation, '*' to enable all user access.
-       ADMIN_ID="*" # comma for separation, '*' to enable all user access.
-       WATERMARK_ENABLED=true # true_or_false
-       ```
+## 🤖 Command Reference
 
-4. **Run the bot**:
-   
-   ```bash
-   python main.py
-   ```
+### Basic Commands
+| Command | Description |
+|---------|-------------|
+| `/start` | Welcome message and bot introduction |
+| `/help` | Detailed command reference and tips |
 
-## Usage
+### Image Generation
+| Command | Flow |
+|---------|------|
+| `/imagine` | Prompt → Generation Type → (Image if control-based) → Size → Style → Generate |
+| `/imaginev2` | Prompt → Aspect Ratio → (Optional Image) → Generate |
 
-Once the bot is running, you can interact with it on Telegram. Here are the available commands:
+### Image Transformation
+| Command | Flow |
+|---------|------|
+| `/reimagine` | Method (Image/Sketch) → Upload Image → Style → Prompt → Transform |
+| `/upscale` | Method → (Prompt if creative/conservative) → Upload Image → Format → Upscale |
 
-1. **/start**: Start the bot and get a welcome message with an overview of features.
-2. **/help**: Get a list of available commands and tips for using the bot.
-3. **/image**: Generate a new AI image from a text prompt.
-   - Follow the prompts to provide a detailed description, select image size, and choose a style.
-4. **/upscale**: Upscale an existing image.
-   - Choose between **Fast**, **Conservative**, or **Creative** upscaling methods.
-   - Provide a prompt if using the **Creative** method.
-5. **/reimagine**: Reimagine an existing image based on a new concept.
-   - Choose between **Image** or **Sketch** methods.
-   - Provide a prompt and select a style for the reimagined image.
-6. **/set_watermark**: Toggle watermarking on or off (Admin only).
-7. **/cancel**: Cancel the current operation.
+### Outpainting (Uncrop)
+| Command | Flow |
+|---------|------|
+| `/uncrop` | Upload Image → Aspect Ratio → Position → (Optional Prompt) → Outpaint |
 
-## Project Structure
+### Admin Commands
+| Command | Description |
+|---------|-------------|
+| `/set_watermark` | Toggle watermark on/off (Admin only) |
 
-- **main.py**: The main entry point for the bot. Initializes the bot and sets up conversation handlers.
-- **helper.py**: Contains helper classes for authentication (`AuthHelper`) and image processing (`ImageHelper`).
-- **models.py**: Defines data models and configurations for image generation, upscaling, and reimagining.
-- **routes.py**: Handles Telegram bot commands and user interactions.
+## 🔄 Workflow Details
 
-## Configuration
+### Image Generation Flow (`/imagine`)
+1. User provides text prompt
+2. Chooses between regular or control-based generation
+3. For control-based: uploads reference image
+4. Selects image size from presets
+5. Chooses style preset
+6. Receives generated image
 
-### Image Sizes and Styles
+### Uncrop/Outpaint Flow (`/uncrop`)
+1. User uploads image to expand
+2. Selects target aspect ratio
+3. Chooses position of original image in expanded result:
+   - 9 position options (top-left, top, top-right, etc.)
+   - "Auto/Original" for automatic centering
+   - Can skip to use auto positioning
+4. (Optional) Provides guidance prompt
+5. Receives outpainted image
 
-The bot supports various image sizes and styles, which are defined in the `ImageConfig` class in `models.py`. You can customize these presets by modifying the `SIZE_MAPPING`, `STYLE_PRESETS`, and `SIZE_PRESETS` dictionaries.
+## ⚙️ Configuration Options
 
-### Watermark
+### Environment Variables
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `TELEGRAM_BOT_TOKEN` | Your Telegram bot token | - |
+| `STABILITY_API_KEY` | Stability AI API key | - |
+| `USER_ID` | Comma-separated allowed user IDs | - |
+| `ADMIN_ID` | Comma-separated admin user IDs | - |
+| `WATERMARK_ENABLED` | Enable/disable watermark | `true` |
 
-The watermark feature can be enabled or disabled by admins using the `/set_watermark` command. The watermark image (`logo.png`) should be placed in the root directory. If no watermark image is provided, the bot will skip watermarking.
+### Image Configuration
+- **Size Presets**: Defined in `ImageConfig` class
+- **Style Presets**: Multiple artistic styles available
+- **Aspect Ratios**: Various common ratios supported
 
-## Error Handling
+## 🚀 Advanced Features
 
-The bot includes comprehensive error handling for various scenarios, such as:
+### Position Control in Outpainting
+When using `/uncrop`, you can precisely control where the original image appears in the expanded result:
+- **9 fixed positions**: Corners, edges, and center
+- **Auto positioning**: Automatically centers the image based on aspect ratio
+- **Visualization**:
+  ```
+  Top Left    | Top    | Top Right
+  -------------------------------
+  Left        | Middle | Right
+  -------------------------------
+  Bottom Left | Bottom | Bottom Right
+  ```
 
-- Invalid user input.
-- API request timeouts.
-- Image download failures.
-- Stability AI API errors.
+### Watermark System
+- Toggleable via `/set_watermark` (admin only)
+- Applies semi-transparent watermark at bottom-left
+- Configurable via `WATERMARK_ENABLED` in `.env`
 
-If an error occurs, the bot will notify the user and provide instructions to retry the operation.
+## 📊 Error Handling
+- Comprehensive error logging
+- User-friendly error messages
+- Automatic timeout handling (3 minutes inactivity)
+- Conversation state tracking
 
-## Contributing
+## 📦 File Structure Details
 
-Contributions are welcome! If you'd like to contribute to this project, please follow these steps:
+### `main.py`
+- Bot initialization
+- Conversation handler setup
+- Timeout management
+- Logging configuration
 
-1. Fork the repository.
-2. Create a new branch for your feature or bugfix.
-3. Commit your changes and push to the branch.
-4. Submit a pull request with a detailed description of your changes.
+### `routes.py`
+- All Telegram command handlers
+- Conversation state management
+- User interaction flows
 
-## Acknowledgments
+### `models.py`
+- `ConversationState`: Enum for tracking conversation steps
+- `ImageConfig`: Size and style presets
+- Parameter dataclasses for each operation type
 
-- [Stability AI](https://stability.ai/) for providing the powerful image generation API.
-- [python-telegram-bot](https://github.com/python-telegram-bot/python-telegram-bot) for the Telegram bot framework.
-- [Pillow](https://pillow.readthedocs.io/) for image processing capabilities.
+### `helper.py`
+- `AuthHelper`: User authentication
+- `ImageHelper`: Core image processing using Stability AI API
+  - Image generation
+  - Upscaling
+  - Reimagining
+  - Outpainting
+  - Watermark handling
 
-## Support
+## 📈 Performance Considerations
+- Automatic image resizing for API limits
+- Async file downloads
+- Progress indicators for long operations
+- Cached configurations
 
-If you encounter any issues or have questions, please open an issue on the [GitHub repository](https://github.com/1999AZZAR/telegram-image-generation-bot/issues).
+## 🌟 Tips for Best Results
+1. **For generation**: Use detailed, specific prompts
+2. **For upscaling**:
+   - Use "creative" mode for adding new details
+   - "conservative" for faithful enlargement
+3. **For outpainting**:
+   - Use position control to guide expansion
+   - Provide prompts for better context awareness
+4. **For reimagining**:
+   - "Image" method works best for complete transformations
+   - "Sketch" method preserves more original structure
 
----
-
-Enjoy using the **AI Image Assistant Bot**! 🎨🤖
+## 📬 Support
+For issues or feature requests, please open an issue in the repository.

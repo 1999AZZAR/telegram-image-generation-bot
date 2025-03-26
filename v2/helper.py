@@ -550,20 +550,53 @@ class ImageHelper:
                     return None
 
                 # Calculate needed outpaint amounts
-                if target_ratio > original_ratio:
-                    # Need to expand horizontally
-                    new_width = original_height * target_ratio
-                    left = int((new_width - original_width) / 2)
-                    right = left
-                    up = 0
-                    down = 0
+                if params.position == "auto":
+                    # Original behavior - automatically center the image
+                    if target_ratio > original_ratio:
+                        # Need to expand horizontally
+                        new_width = original_height * target_ratio
+                        left = int((new_width - original_width) / 2)
+                        right = left
+                        up = 0
+                        down = 0
+                    else:
+                        # Need to expand vertically
+                        new_height = original_width / target_ratio
+                        up = int((new_height - original_height) / 2)
+                        down = up
+                        left = 0
+                        right = 0
                 else:
-                    # Need to expand vertically
-                    new_height = original_width / target_ratio
-                    up = int((new_height - original_height) / 2)
-                    down = up
-                    left = 0
-                    right = 0
+                    # User-specified position behavior
+                    max_expand_h = (
+                        max(0, original_height * target_ratio - original_width)
+                        if target_ratio > original_ratio
+                        else 0
+                    )
+                    max_expand_v = (
+                        max(0, original_width / target_ratio - original_height)
+                        if target_ratio <= original_ratio
+                        else 0
+                    )
+
+                    # Reset all directions first
+                    left = right = up = down = 0
+
+                    if "top" in params.position:
+                        down = max_expand_v
+                    elif "bottom" in params.position:
+                        up = max_expand_v
+                    else:  # middle vertically
+                        up = max_expand_v // 2
+                        down = max_expand_v - up
+
+                    if "left" in params.position:
+                        right = max_expand_h
+                    elif "right" in params.position:
+                        left = max_expand_h
+                    else:  # middle horizontally
+                        left = max_expand_h // 2
+                        right = max_expand_h - left
 
                 # Ensure we don't exceed API limits (1024px per side)
                 max_expansion = 1024

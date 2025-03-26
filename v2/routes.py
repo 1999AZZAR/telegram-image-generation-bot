@@ -839,7 +839,7 @@ class TelegramRoutes:
     ) -> ConversationState:
         await self._update_last_message_time(context)
         """Handles the /uncrop command to start the outpainting process."""
-        if not self.auth_helper.is_user(str(update.message.from_user.id)):
+        if not self.auth_helper.is_admin(str(update.message.from_user.id)):
             await update.message.reply_text(
                 "🔒 Sorry, you are not authorized to use this bot."
             )
@@ -901,6 +901,60 @@ class TelegramRoutes:
             return ConversationState.WAITING_FOR_UNCROP_ASPECT_RATIO
 
         context.user_data["uncrop_aspect_ratio"] = aspect_ratio
+
+        # Add position selection keyboard with skip option
+        position_keyboard = [
+            ["Top Left", "Top", "Top Right"],
+            ["Left", "Auto/Original", "Right"],
+            ["Bottom Left", "Bottom", "Bottom Right"],
+            ["Skip (Use Auto)"],
+        ]
+        reply_markup = ReplyKeyboardMarkup(
+            position_keyboard, one_time_keyboard=True, resize_keyboard=True
+        )
+
+        await update.message.reply_text(
+            "📍 Select where to position the original image in the outpainted result (or skip to use auto positioning):",
+            reply_markup=reply_markup,
+        )
+        return ConversationState.WAITING_FOR_UNCROP_POSITION
+
+    @handle_errors
+    async def handle_uncrop_position(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> ConversationState:
+        await self._update_last_message_time(context)
+        """Handles the position selection for uncrop/outpaint."""
+        position = update.message.text.lower().replace(" ", "_")
+
+        # Handle skip option
+        if position in ["skip", "skip_(use_auto)"]:
+            context.user_data["uncrop_position"] = "auto"
+        else:
+            valid_positions = [
+                "top_left",
+                "top",
+                "top_right",
+                "left",
+                "auto/original",
+                "right",
+                "bottom_left",
+                "bottom",
+                "bottom_right",
+            ]
+
+            if position not in valid_positions:
+                await update.message.reply_text(
+                    "❌ Invalid position. Please select from the options."
+                )
+                return ConversationState.WAITING_FOR_UNCROP_POSITION
+
+            # Special case for "Auto/Original" selection
+            if position == "auto/original":
+                context.user_data["uncrop_position"] = "auto"
+            else:
+                context.user_data["uncrop_position"] = position
+
         await update.message.reply_text(
             "✏️ (Optional) Provide a prompt to guide the outpainting, or type /skip:",
             reply_markup=ReplyKeyboardRemove(),
@@ -927,6 +981,7 @@ class TelegramRoutes:
                 target_aspect_ratio=context.user_data["uncrop_aspect_ratio"],
                 prompt=context.user_data.get("uncrop_prompt", ""),
                 output_format="png",
+                position=context.user_data.get("uncrop_position", "middle"),
             )
 
             image_path = self.image_helper.uncrop_image(params)
