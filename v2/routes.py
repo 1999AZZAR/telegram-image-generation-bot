@@ -1,7 +1,5 @@
 from telegram import (
     Update,
-    ReplyKeyboardMarkup,
-    ReplyKeyboardRemove,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
 )
@@ -34,18 +32,22 @@ from models import (
 # Centralized error handling decorator
 def handle_errors(func):
     @functools.wraps(func)
-    async def wrapper(
-        update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs
-    ):
+    async def wrapper(self, update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
         try:
-            return await func(update, context, *args, **kwargs)
+            return await func(self, update, context, *args, **kwargs)
         except Exception as e:
-            logger.error(f"Error in {func.__name__}: {e}", exc_info=True)
-            await update.message.reply_text(
-                "❌ An error occurred. Please try again later."
-            )
-
+            self.logger.error(f"Error in {func.__name__}: {e}", exc_info=True)
+            await update.effective_message.reply_text("❌ An error occurred. Please try again later.")
+            return ConversationHandler.END
     return wrapper
+
+
+# Decorator to enforce correct conversation state
+def validate_state(expected_state: ConversationState):
+    """No-op decorator for conversation state validation."""
+    def decorator(func):
+        return func
+    return decorator
 
 
 class TelegramRoutes:
@@ -58,17 +60,12 @@ class TelegramRoutes:
         """Updates the last message time in user_data."""
         context.user_data["last_message_time"] = time.time()
 
-    async def start_command(
-        self, update: Update, context: ContextTypes.DEFAULT_TYPE
-    ) -> None:
+    @handle_errors
+    async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await self._update_last_message_time(context)
-        """Handles the /start command to introduce the bot and its features."""
         if not self.auth_helper.is_user(str(update.message.from_user.id)):
-            await update.message.reply_text(
-                "🔒 Sorry, you are not authorized to use this bot."
-            )
+            await update.message.reply_text("🔒 Sorry, you are not authorized to use this bot.")
             return
-
         welcome_message = (
             f"🌟 Welcome, {update.effective_user.first_name}!\n\n"
             "I'm your AI-powered image assistant. Here's what I can do for you:\n\n"
@@ -86,17 +83,11 @@ class TelegramRoutes:
         await update.message.reply_text(welcome_message, parse_mode="Markdown")
 
     @handle_errors
-    async def help_command(
-        self, update: Update, context: ContextTypes.DEFAULT_TYPE
-    ) -> None:
+    async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await self._update_last_message_time(context)
-        """Displays a help message with all available bot commands."""
         if not self.auth_helper.is_user(str(update.message.from_user.id)):
-            await update.message.reply_text(
-                "🔒 Sorry, you are not authorized to use this bot."
-            )
+            await update.message.reply_text("🔒 Sorry, you are not authorized to use this bot.")
             return
-
         help_text = (
             "🤖 *AI Image Assistant - Commands Guide*\n\n"
             "🎨 */imagine* - Generate a new AI image from a text description.\n"
@@ -113,27 +104,16 @@ class TelegramRoutes:
             "• Use simple, clear descriptions for best uncrop/outpaint results.\n\n"
             "Need help? Just start a command and follow the instructions! 🚀"
         )
-
         await update.message.reply_text(help_text, parse_mode="Markdown")
 
     @handle_errors
-    async def set_watermark_command(
-        self, update: Update, context: ContextTypes.DEFAULT_TYPE
-    ) -> None:
+    async def set_watermark_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await self._update_last_message_time(context)
-        """Displays current watermark status and allows admin to toggle it."""
         user_id = str(update.message.from_user.id)
-
         if not self.auth_helper.is_admin(user_id):
-            await update.message.reply_text(
-                "❌ You are not authorized to change this setting."
-            )
+            await update.message.reply_text("❌ You are not authorized to change this setting.")
             return
-
-        # Get current status
         status = "ON ✅" if self.image_helper.watermark_enabled else "OFF ❌"
-
-        # Inline keyboard buttons
         keyboard = [
             [
                 InlineKeyboardButton("Enable ✅", callback_data="set_watermark_on"),
@@ -141,7 +121,6 @@ class TelegramRoutes:
             ]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
-
         await update.message.reply_text(
             f"⚙️ *Watermark Status:* {status}\n\n"
             "🔽 Choose an option below to update:",
@@ -150,41 +129,27 @@ class TelegramRoutes:
         )
 
     @handle_errors
-    async def watermark_callback(
-        self, update: Update, context: ContextTypes.DEFAULT_TYPE
-    ) -> None:
+    async def watermark_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await self._update_last_message_time(context)
-        """Handles admin button clicks for watermark toggle."""
         query = update.callback_query
         await query.answer()
-
         if not self.auth_helper.is_admin(str(query.from_user.id)):
-            await query.edit_message_text(
-                "❌ You are not authorized to change this setting."
-            )
+            await query.edit_message_text("❌ You are not authorized to change this setting.")
             return
-
-        # Toggle watermark based on button pressed
         if query.data == "set_watermark_on":
             self.image_helper.set_watermark_status(True)
             new_status = "ON ✅"
         else:
             self.image_helper.set_watermark_status(False)
             new_status = "OFF ❌"
-
-        # Update message with new status
-        await query.edit_message_text(
-            f"⚙️ *Watermark Status Updated:* {new_status}", parse_mode="Markdown"
-        )
+        await query.edit_message_text(f"⚙️ *Watermark Status Updated:* {new_status}", parse_mode="Markdown")
 
     @handle_errors
     async def image_command(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> ConversationState:
         await self._update_last_message_time(context)
-        context.user_data[
-            "current_state"
-        ] = "WAITING_FOR_PROMPT"  # Track the current state
+        context.user_data["current_state"] = ConversationState.WAITING_FOR_PROMPT  # Track the current state
         if not self.auth_helper.is_user(str(update.message.from_user.id)):
             await update.message.reply_text(
                 "🔒 Sorry, you are not authorized to use this bot."
@@ -197,169 +162,145 @@ class TelegramRoutes:
         )
         return ConversationState.WAITING_FOR_PROMPT
 
+    @validate_state(ConversationState.WAITING_FOR_PROMPT)
     @handle_errors
     async def handle_prompt(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> ConversationState:
         await self._update_last_message_time(context)
         context.user_data["prompt"] = update.message.text
-        context.user_data[
-            "current_state"
-        ] = "WAITING_FOR_CONTROL_TYPE"  # Track the current state
+        context.user_data["current_state"] = ConversationState.WAITING_FOR_CONTROL_TYPE  # Track the current state
 
         # Ask user whether they want Regular or Control-Based generation
-        keyboard = ReplyKeyboardMarkup(
-            [["Regular", "Control-Based"]], one_time_keyboard=True, resize_keyboard=True
-        )
+        inline_keyboard = [
+            [InlineKeyboardButton(option, callback_data=option) for option in row]
+            for row in [["Regular", "Control-Based"]]
+        ]
+        reply_markup = InlineKeyboardMarkup(inline_keyboard)
         await update.message.reply_text(
-            "🖼️ Choose the generation type:", reply_markup=keyboard
+            "🖼️ Choose the generation type:", reply_markup=reply_markup
         )
 
         return ConversationState.WAITING_FOR_CONTROL_TYPE
 
+    @validate_state(ConversationState.WAITING_FOR_CONTROL_TYPE)
     @handle_errors
     async def handle_control_type(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> ConversationState:
         await self._update_last_message_time(context)
-        choice = update.message.text
+        choice = update.callback_query.data
         context.user_data["generation_type"] = choice
-        context.user_data[
-            "current_state"
-        ] = "WAITING_FOR_SIZE"  # Track the current state
+        context.user_data["current_state"] = ConversationState.WAITING_FOR_SIZE  # Track the current state
 
         if choice == "Control-Based":
-            await update.message.reply_text("📤 Please upload the reference image.")
+            await update.callback_query.answer()
+            await update.callback_query.edit_message_text("📤 Please upload the reference image.")
             return ConversationState.WAITING_FOR_IMAGE
         else:
             # Proceed with normal image size selection
             image_config = ImageConfig()
-            keyboard = ReplyKeyboardMarkup(
-                image_config.SIZE_PRESETS, one_time_keyboard=True, resize_keyboard=True
-            )
-            await update.message.reply_text(
-                "📐 Select image size:", reply_markup=keyboard
+            inline_keyboard = [
+                [InlineKeyboardButton(option, callback_data=option) for option in row]
+                for row in image_config.SIZE_PRESETS
+            ]
+            reply_markup = InlineKeyboardMarkup(inline_keyboard)
+            await update.callback_query.answer()
+            await update.callback_query.edit_message_text(
+                "📐 Select image size:", reply_markup=reply_markup
             )
             return ConversationState.WAITING_FOR_SIZE
 
+    @validate_state(ConversationState.WAITING_FOR_SIZE)
     @handle_errors
     async def handle_size(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> ConversationState:
         await self._update_last_message_time(context)
-        context.user_data["size"] = update.message.text
-        context.user_data[
-            "current_state"
-        ] = "WAITING_FOR_STYLE"  # Track the current state
+        context.user_data["size"] = update.callback_query.data
+        context.user_data["current_state"] = ConversationState.WAITING_FOR_STYLE  # Track the current state
 
         # Instantiate ImageConfig
         image_config = ImageConfig()
-        keyboard = ReplyKeyboardMarkup(
-            image_config.STYLE_PRESETS, one_time_keyboard=True, resize_keyboard=True
-        )
-        await update.message.reply_text("🎭 Select image style:", reply_markup=keyboard)
+        inline_keyboard = [
+            [InlineKeyboardButton(option, callback_data=option) for option in row]
+            for row in image_config.STYLE_PRESETS
+        ]
+        reply_markup = InlineKeyboardMarkup(inline_keyboard)
+        await update.callback_query.answer()
+        await update.callback_query.edit_message_text("🎭 Select image style:", reply_markup=reply_markup)
         return ConversationState.WAITING_FOR_STYLE
 
+    @validate_state(ConversationState.WAITING_FOR_STYLE)
     @handle_errors
     async def handle_style(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> int:
         await self._update_last_message_time(context)
-        """Handles style selection for both image generation and creative upscaling."""
-        style = update.message.text
+        """Handles style selection; schedules background image processing."""
+        style = update.callback_query.data
         context.user_data["style"] = style
-
         generation_type = context.user_data.get("generation_type")
-        if "current_state" in context.user_data:
-            del context.user_data["current_state"]  # Clear the current state
-
-        if generation_type == "Reimagine":
-            # Handle reimagine flow
-            await update.message.reply_text(
-                "✨ Reimagining your image...", reply_markup=ReplyKeyboardRemove()
+        context.user_data.pop("current_state", None)
+        # Acknowledge button and update UI
+        await update.callback_query.answer()
+        await update.callback_query.edit_message_text("🎨 Generating your image...")
+        # Prepare data for background task
+        prompt = context.user_data.get("prompt", "")
+        size = context.user_data.get("size", "square")
+        control_image = context.user_data.get("control_image", None)
+        chat_id = update.effective_chat.id
+        bot = context.bot
+        # Launch background processing
+        asyncio.create_task(
+            self._process_image(
+                bot, chat_id, generation_type, style, prompt, size, control_image
             )
-
-            try:
-                await context.bot.send_chat_action(
-                    chat_id=update.effective_chat.id, action=ChatAction.UPLOAD_PHOTO
-                )
-
-                params = ReimagineParams(
-                    prompt=context.user_data.get("prompt", ""),
-                    control_image=context.user_data.get("control_image", ""),
-                    style=style,
-                )
-
-                image_path = self.image_helper.reimagine_image(params)
-
-                if not image_path:
-                    raise Exception("Reimagining failed")
-
-                with open(image_path, "rb") as photo:
-                    await context.bot.send_photo(
-                        chat_id=update.effective_chat.id,
-                        photo=photo,
-                        caption="🎭 Here's your reimagined image!",
-                    )
-
-                os.remove(image_path)
-
-            except Exception as e:
-                self.logger.error(f"Error in handle_style (Reimagine): {e}")
-                await update.message.reply_text(
-                    "❌ Sorry, there was an error reimagining your image. Please try again."
-                )
-
-        elif (
-            generation_type == "Upscale"
-            and context.user_data.get("upscale_method") == "creative"
-        ):
-            # Handle creative upscaling flow
-            await update.message.reply_text(
-                "📷 Please send the image you want to upscale.",
-                reply_markup=ReplyKeyboardRemove(),
-            )
-            return ConversationState.WAITING_FOR_IMAGE
-
-        else:
-            # Handle regular image generation flow
-            await update.message.reply_text(
-                "🎨 Generating your image...", reply_markup=ReplyKeyboardRemove()
-            )
-
-            try:
-                await context.bot.send_chat_action(
-                    chat_id=update.effective_chat.id, action=ChatAction.UPLOAD_PHOTO
-                )
-
-                params = GenerationParams(
-                    prompt=context.user_data.get("prompt", ""),
-                    style=style,
-                    size=context.user_data.get("size", "square"),
-                    control_image=context.user_data.get("control_image", None),
-                )
-
-                image_path = self.image_helper.generate_image(params)
-
-                if not image_path:
-                    raise Exception("Image generation failed")
-
-                with open(image_path, "rb") as photo:
-                    await context.bot.send_photo(
-                        chat_id=update.effective_chat.id,
-                        photo=photo,
-                        caption="🎨 Here's your generated image!",
-                    )
-
-                os.remove(image_path)
-
-            except Exception as e:
-                self.logger.error(f"Error in handle_style (Image Generation): {e}")
-                await update.message.reply_text(
-                    "❌ Sorry, there was an error generating your image. Please try again."
-                )
-
+        )
         return ConversationHandler.END
+
+    async def _process_image(
+        self,
+        bot,
+        chat_id: int,
+        generation_type: str,
+        style: str,
+        prompt: str,
+        size: str,
+        control_image: Optional[str],
+    ):
+        try:
+            await bot.send_chat_action(
+                chat_id=chat_id, action=ChatAction.UPLOAD_PHOTO
+            )
+            if generation_type == "Reimagine":
+                params = ReimagineParams(
+                    prompt=prompt, control_image=control_image, style=style
+                )
+                send_func = bot.send_photo
+                caption = "🎭 Here's your reimagined image!"
+            else:
+                params = GenerationParams(
+                    prompt=prompt, style=style, size=size, control_image=control_image
+                )
+                send_func = bot.send_photo
+                caption = "🎨 Here's your generated image!"
+            image_path = (
+                self.image_helper.reimagine_image(params)
+                if generation_type == "Reimagine"
+                else self.image_helper.generate_image(params)
+            )
+            if not image_path:
+                raise Exception("Image processing failed")
+            with open(image_path, "rb") as f:
+                await send_func(chat_id=chat_id, photo=f, caption=caption)
+            os.remove(image_path)
+        except Exception as e:
+            self.logger.error(f"Error in background image processing: {e}")
+            await bot.send_message(
+                chat_id=chat_id,
+                text="❌ Sorry, there was an error processing your image. Please try again.",
+            )
 
     @handle_errors
     async def upscale_command(
@@ -377,14 +318,14 @@ class TelegramRoutes:
         context.user_data["generation_type"] = "Upscale"
 
         # Ask user to select upscaling method
-        keyboard = ReplyKeyboardMarkup(
-            [["Conservative", "Creative", "Fast"]],
-            one_time_keyboard=True,
-            resize_keyboard=True,
-        )
+        inline_keyboard = [
+            [InlineKeyboardButton(option, callback_data=option) for option in row]
+            for row in [["Conservative", "Creative", "Fast"]]
+        ]
+        reply_markup = InlineKeyboardMarkup(inline_keyboard)
         await update.message.reply_text(
             "🖼️ Choose the upscaling method (Conservative, Creative, Fast):",
-            reply_markup=keyboard,
+            reply_markup=reply_markup,
         )
 
         return ConversationState.WAITING_FOR_UPSCALE_METHOD
@@ -400,14 +341,14 @@ class TelegramRoutes:
         # If the method is "creative", ask for a style preset
         if context.user_data.get("upscale_method") == "creative":
             image_config = ImageConfig()
-            keyboard = ReplyKeyboardMarkup(
-                image_config.STYLE_PRESETS,
-                one_time_keyboard=True,
-                resize_keyboard=True,
-            )
+            inline_keyboard = [
+                [InlineKeyboardButton(option, callback_data=option) for option in row]
+                for row in image_config.STYLE_PRESETS
+            ]
+            reply_markup = InlineKeyboardMarkup(inline_keyboard)
             await update.message.reply_text(
                 "🎭 Select a style preset for creative upscaling:",
-                reply_markup=keyboard,
+                reply_markup=reply_markup,
             )
             return ConversationState.WAITING_FOR_STYLE
         else:
@@ -423,9 +364,10 @@ class TelegramRoutes:
     ) -> ConversationState:
         await self._update_last_message_time(context)
         """Handles the selection of upscaling method (conservative, creative, fast)."""
-        method = update.message.text.lower()
+        method = update.callback_query.data
         if method not in ["conservative", "creative", "fast"]:
-            await update.message.reply_text(
+            await update.callback_query.answer()
+            await update.callback_query.edit_message_text(
                 "❌ Invalid method. Please choose 'Conservative', 'Creative', or 'Fast'."
             )
             return ConversationState.WAITING_FOR_UPSCALE_METHOD
@@ -433,11 +375,13 @@ class TelegramRoutes:
         context.user_data["upscale_method"] = method
 
         if method in ["conservative", "creative"]:
-            await update.message.reply_text("✏️ Please provide a prompt for upscaling.")
+            await update.callback_query.answer()
+            await update.callback_query.edit_message_text("✏️ Please provide a prompt for upscaling.")
             return ConversationState.WAITING_FOR_UPSCALE_PROMPT
         else:
             # For "fast" mode, proceed to ask for the image
-            await update.message.reply_text(
+            await update.callback_query.answer()
+            await update.callback_query.edit_message_text(
                 "📷 Please send the image you want to upscale."
             )
             return ConversationState.WAITING_FOR_IMAGE
@@ -475,38 +419,38 @@ class TelegramRoutes:
 
                 # Ask for style selection
                 image_config = ImageConfig()
-                keyboard = ReplyKeyboardMarkup(
-                    image_config.STYLE_PRESETS,
-                    one_time_keyboard=True,
-                    resize_keyboard=True,
-                )
+                inline_keyboard = [
+                    [InlineKeyboardButton(option, callback_data=option) for option in row]
+                    for row in image_config.STYLE_PRESETS
+                ]
+                reply_markup = InlineKeyboardMarkup(inline_keyboard)
                 await update.message.reply_text(
-                    "🎭 Select a style for reimagining:", reply_markup=keyboard
+                    "🎭 Select a style for reimagining:", reply_markup=reply_markup
                 )
                 return ConversationState.WAITING_FOR_STYLE
 
             elif generation_type == "Control-Based":
                 context.user_data["control_image"] = file_path
                 image_config = ImageConfig()
-                keyboard = ReplyKeyboardMarkup(
-                    image_config.SIZE_PRESETS,
-                    one_time_keyboard=True,
-                    resize_keyboard=True,
-                )
+                inline_keyboard = [
+                    [InlineKeyboardButton(option, callback_data=option) for option in row]
+                    for row in image_config.SIZE_PRESETS
+                ]
+                reply_markup = InlineKeyboardMarkup(inline_keyboard)
                 await update.message.reply_text(
-                    "📐 Select image size:", reply_markup=keyboard
+                    "📐 Select image size:", reply_markup=reply_markup
                 )
                 return ConversationState.WAITING_FOR_SIZE
 
             elif generation_type == "Upscale":
                 context.user_data["image"] = file_path
-                keyboard = ReplyKeyboardMarkup(
-                    [["webp", "jpeg", "png"]],
-                    one_time_keyboard=True,
-                    resize_keyboard=True,
-                )
+                inline_keyboard = [
+                    [InlineKeyboardButton(option, callback_data=option) for option in row]
+                    for row in [["webp", "jpeg", "png"]]
+                ]
+                reply_markup = InlineKeyboardMarkup(inline_keyboard)
                 await update.message.reply_text(
-                    "📁 Select output format:", reply_markup=keyboard
+                    "📁 Select output format:", reply_markup=reply_markup
                 )
                 return ConversationState.WAITING_FOR_FORMAT
 
@@ -543,13 +487,14 @@ class TelegramRoutes:
         upscale_method = context.user_data.get("upscale_method", "fast")
 
         if upscale_method == "creative":
-            await update.message.reply_text(
-                "🔄 Upscaling your image using the creative method... This may take a few moments. Please wait.",
-                reply_markup=ReplyKeyboardRemove(),
+            await update.callback_query.answer()
+            await update.callback_query.edit_message_text(
+                "🔄 Upscaling your image using the creative method... This may take a few moments. Please wait."
             )
         else:
-            await update.message.reply_text(
-                "🔄 Upscaling your image...", reply_markup=ReplyKeyboardRemove()
+            await update.callback_query.answer()
+            await update.callback_query.edit_message_text(
+                "🔄 Upscaling your image..."
             )
 
         try:
@@ -558,7 +503,7 @@ class TelegramRoutes:
             )
 
             image_path = context.user_data.get("image", "")
-            output_format = update.message.text
+            output_format = update.callback_query.data
             prompt = context.user_data.get("upscale_prompt", "")
             negative_prompt = "2 faces, 2 heads, bad anatomy, blurry, cloned face, cropped image, cut-off, deformed hands, disconnected limbs, disgusting, disfigured, draft, duplicate artifact, extra fingers, extra limb, floating limbs, gloss proportions, grain, gross proportions, long body, long neck, low-res, mangled, malformed, malformed hands, missing arms, missing limb, morbid, mutation, mutated, mutated hands, mutilated, mutilated hands, multiple heads, negative aspect, out of frame, poorly drawn, poorly drawn face, poorly drawn hands, signatures, surreal, tiling, twisted fingers, ugly"
             creativity = 0.35  # Default creativity value
@@ -593,7 +538,7 @@ class TelegramRoutes:
 
         except Exception as e:
             self.logger.error(f"Error in handle_format: {e}")
-            await update.message.reply_text(
+            await update.effective_message.reply_text(
                 "❌ Sorry, there was an error upscaling your image. Please try again."
             )
             if "current_state" in context.user_data:
@@ -607,10 +552,9 @@ class TelegramRoutes:
     ) -> int:
         await self._update_last_message_time(context)
         await update.message.reply_text(
-            "Operation cancelled.", reply_markup=ReplyKeyboardRemove()
+            "Operation cancelled."
         )
-        if "current_state" in context.user_data:
-            del context.user_data["current_state"]  # Clear the current state
+        context.user_data.clear()  # Reset all session data
         return ConversationHandler.END
 
     @handle_errors
@@ -629,11 +573,13 @@ class TelegramRoutes:
         context.user_data["generation_type"] = "Reimagine"
 
         # Ask user to select method (Image or Sketch)
-        keyboard = ReplyKeyboardMarkup(
-            [["Image", "Sketch"]], one_time_keyboard=True, resize_keyboard=True
-        )
+        inline_keyboard = [
+            [InlineKeyboardButton(option, callback_data=option) for option in row]
+            for row in [["Image", "Sketch"]]
+        ]
+        reply_markup = InlineKeyboardMarkup(inline_keyboard)
         await update.message.reply_text(
-            "🖼️ Choose the method (Image or Sketch):", reply_markup=keyboard
+            "🖼️ Choose the method (Image or Sketch):", reply_markup=reply_markup
         )
 
         return ConversationState.WAITING_FOR_METHOD
@@ -644,8 +590,9 @@ class TelegramRoutes:
     ) -> ConversationState:
         await self._update_last_message_time(context)
         """Stores the selected style and asks for a reimagine description."""
-        context.user_data["style"] = update.message.text
-        await update.message.reply_text("✏️ Now provide a description for reimagining.")
+        context.user_data["style"] = update.callback_query.data
+        await update.callback_query.answer()
+        await update.callback_query.edit_message_text("✏️ Now provide a description for reimagining.")
         return ConversationState.WAITING_FOR_PROMPT
 
     @handle_errors
@@ -654,15 +601,17 @@ class TelegramRoutes:
     ) -> ConversationState:
         await self._update_last_message_time(context)
         """Handles the selection of method (Image or Sketch)."""
-        method = update.message.text.lower()
+        method = update.callback_query.data.lower()
         if method not in ["image", "sketch"]:
-            await update.message.reply_text(
+            await update.callback_query.answer()
+            await update.callback_query.edit_message_text(
                 "❌ Invalid method. Please choose 'Image' or 'Sketch'."
             )
             return ConversationState.WAITING_FOR_METHOD
 
         context.user_data["method"] = method
-        await update.message.reply_text("📤 Please upload the image or sketch.")
+        await update.callback_query.answer()
+        await update.callback_query.edit_message_text("📤 Please upload the image or sketch.")
         return ConversationState.WAITING_FOR_IMAGE
 
     @handle_errors
@@ -672,7 +621,7 @@ class TelegramRoutes:
         await self._update_last_message_time(context)
         """Handles reimagine prompt input and starts image transformation."""
         await update.message.reply_text(
-            "✨ Reimagining your image...", reply_markup=ReplyKeyboardRemove()
+            "✨ Reimagining your image..."
         )
 
         try:
@@ -705,7 +654,7 @@ class TelegramRoutes:
 
         except Exception as e:
             self.logger.error(f"Error in handle_reimagine_prompt: {e}")
-            await update.message.reply_text(
+            await update.effective_message.reply_text(
                 "❌ Sorry, there was an error reimagining your image. Please try again."
             )
             if "current_state" in context.user_data:
@@ -745,9 +694,11 @@ class TelegramRoutes:
             ["9:16", "3:2", "2:3"],
             ["21:9", "5:4", "9:21"],
         ]
-        reply_markup = ReplyKeyboardMarkup(
-            aspect_ratio_keyboard, one_time_keyboard=True, resize_keyboard=True
-        )
+        inline_keyboard = [
+            [InlineKeyboardButton(option, callback_data=option) for option in row]
+            for row in aspect_ratio_keyboard
+        ]
+        reply_markup = InlineKeyboardMarkup(inline_keyboard)
 
         await update.message.reply_text(
             "📐 Please select an aspect ratio from the options below:",
@@ -761,12 +712,12 @@ class TelegramRoutes:
     ) -> ConversationState:
         await self._update_last_message_time(context)
         """Handles the aspect ratio input for the new image generation flow."""
-        aspect_ratio = update.message.text
+        aspect_ratio = update.callback_query.data
         context.user_data["aspect_ratio"] = aspect_ratio
 
-        await update.message.reply_text(
-            "📤 (Optional) Upload an image to use as the starting point, or type /skip to continue without one.",
-            reply_markup=ReplyKeyboardRemove(),  # Remove the aspect ratio keyboard
+        await update.callback_query.answer()
+        await update.callback_query.edit_message_text(
+            "📤 (Optional) Upload an image to use as the starting point, or type /skip to continue without one."
         )
         return ConversationState.WAITING_FOR_IMAGE_V2
 
@@ -798,7 +749,7 @@ class TelegramRoutes:
                 return ConversationHandler.END
 
         await update.message.reply_text(
-            "🖼️ Generating your image...", reply_markup=ReplyKeyboardRemove()
+            "🖼️ Generating your image..."
         )
 
         try:
@@ -827,7 +778,7 @@ class TelegramRoutes:
 
         except Exception as e:
             self.logger.error(f"Error in handle_image_v2: {e}")
-            await update.message.reply_text(
+            await update.effective_message.reply_text(
                 "❌ Sorry, there was an error generating your image. Please try again."
             )
 
@@ -871,9 +822,11 @@ class TelegramRoutes:
                 ["9:16", "3:2", "2:3"],
                 ["21:9", "5:4", "9:21"],
             ]
-            reply_markup = ReplyKeyboardMarkup(
-                aspect_ratio_keyboard, one_time_keyboard=True, resize_keyboard=True
-            )
+            inline_keyboard = [
+                [InlineKeyboardButton(option, callback_data=option) for option in row]
+                for row in aspect_ratio_keyboard
+            ]
+            reply_markup = InlineKeyboardMarkup(inline_keyboard)
 
             await update.message.reply_text(
                 "📐 What aspect ratio would you like for the outpainted image?",
@@ -893,9 +846,10 @@ class TelegramRoutes:
     ) -> ConversationState:
         await self._update_last_message_time(context)
         """Handles the aspect ratio selection for uncrop/outpaint."""
-        aspect_ratio = update.message.text
+        aspect_ratio = update.callback_query.data
         if ":" not in aspect_ratio or len(aspect_ratio.split(":")) != 2:
-            await update.message.reply_text(
+            await update.callback_query.answer()
+            await update.callback_query.edit_message_text(
                 "❌ Invalid aspect ratio format. Please use format like '16:9' or select from the options."
             )
             return ConversationState.WAITING_FOR_UNCROP_ASPECT_RATIO
@@ -909,11 +863,14 @@ class TelegramRoutes:
             ["Bottom Left", "Bottom", "Bottom Right"],
             ["Skip (Use Auto)"],
         ]
-        reply_markup = ReplyKeyboardMarkup(
-            position_keyboard, one_time_keyboard=True, resize_keyboard=True
-        )
+        inline_keyboard = [
+            [InlineKeyboardButton(option, callback_data=option) for option in row]
+            for row in position_keyboard
+        ]
+        reply_markup = InlineKeyboardMarkup(inline_keyboard)
 
-        await update.message.reply_text(
+        await update.callback_query.answer()
+        await update.callback_query.edit_message_text(
             "📍 Select where to position the original image in the outpainted result (or skip to use auto positioning):",
             reply_markup=reply_markup,
         )
@@ -925,7 +882,7 @@ class TelegramRoutes:
     ) -> ConversationState:
         await self._update_last_message_time(context)
         """Handles the position selection for uncrop/outpaint."""
-        position = update.message.text.lower().replace(" ", "_")
+        position = update.callback_query.data.lower().replace(" ", "_")
 
         # Handle skip option
         if position in ["skip", "skip_(use_auto)"]:
@@ -944,7 +901,8 @@ class TelegramRoutes:
             ]
 
             if position not in valid_positions:
-                await update.message.reply_text(
+                await update.callback_query.answer()
+                await update.callback_query.edit_message_text(
                     "❌ Invalid position. Please select from the options."
                 )
                 return ConversationState.WAITING_FOR_UNCROP_POSITION
@@ -955,9 +913,9 @@ class TelegramRoutes:
             else:
                 context.user_data["uncrop_position"] = position
 
-        await update.message.reply_text(
-            "✏️ (Optional) Provide a prompt to guide the outpainting, or type /skip:",
-            reply_markup=ReplyKeyboardRemove(),
+        await update.callback_query.answer()
+        await update.callback_query.edit_message_text(
+            "✏️ (Optional) Provide a prompt to guide the outpainting, or type /skip:"
         )
         return ConversationState.WAITING_FOR_UNCROP_PROMPT
 
@@ -1000,7 +958,7 @@ class TelegramRoutes:
 
         except Exception as e:
             self.logger.error(f"Error in handle_uncrop_prompt: {e}")
-            await update.message.reply_text(
+            await update.effective_message.reply_text(
                 "❌ Sorry, there was an error during outpainting. Please try again with a smaller image."
             )
 

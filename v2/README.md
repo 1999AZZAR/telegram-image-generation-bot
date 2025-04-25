@@ -82,47 +82,40 @@ python main.py
 | `/start` | Welcome message and bot introduction |
 | `/help` | Detailed command reference and tips |
 
-### Image Generation
-| Command | Flow |
-|---------|------|
-| `/imagine` | Prompt → Generation Type → (Image if control-based) → Size → Style → Generate |
-| `/imaginev2` | Prompt → Aspect Ratio → (Optional Image) → Generate |
+### Endpoint Details
 
-### Image Transformation
-| Command | Flow |
-|---------|------|
-| `/reimagine` | Method (Image/Sketch) → Upload Image → Style → Prompt → Transform |
-| `/upscale` | Method → (Prompt if creative/conservative) → Upload Image → Format → Upscale |
+**/start**
+- Sends a welcome message, lists available commands and basic usage tips.
+- Usage: `/start`
 
-### Outpainting (Uncrop)
-| Command | Flow |
-|---------|------|
-| `/uncrop` | Upload Image → Aspect Ratio → Position → (Optional Prompt) → Outpaint |
+**/help**
+- Displays a detailed list of all commands with brief descriptions and examples.
+- Usage: `/help`
 
-### Admin Commands
-| Command | Description |
-|---------|-------------|
-| `/set_watermark` | Toggle watermark on/off (Admin only) |
+**/imagine**
+- Initiates AI image generation: requests a text prompt, asks for generation type (regular vs control), optionally uploads a reference image, selects size and style.
+- After style selection, the bot edits the message to “🎨 Generating your image…” and exits the flow; delivers the result asynchronously when ready.
+- Usage: `/imagine <your prompt>`
 
-## 🔄 Workflow Details
+**/imaginev2**
+- Advanced generation model: prompts for text, lets you choose an aspect ratio, optionally upload an image for control, then processes and returns the image.
+- Usage: `/imaginev2 <your prompt>`
 
-### Image Generation Flow (`/imagine`)
-1. User provides text prompt
-2. Chooses between regular or control-based generation
-3. For control-based: uploads reference image
-4. Selects image size from presets
-5. Chooses style preset
-6. Receives generated image
+**/reimagine**
+- Reimagines an existing image: choose method (Image vs Sketch), upload your image, pick a style preset, provide a transformation prompt.
+- Usage: `/reimagine`
 
-### Uncrop/Outpaint Flow (`/uncrop`)
-1. User uploads image to expand
-2. Selects target aspect ratio
-3. Chooses position of original image in expanded result:
-   - 9 position options (top-left, top, top-right, etc.)
-   - "Auto/Original" for automatic centering
-   - Can skip to use auto positioning
-4. (Optional) Provides guidance prompt
-5. Receives outpainted image
+**/upscale**
+- Upscales images: select method (Conservative, Creative, Fast), enter a prompt (for Creative/Conservative), upload image, choose output format.
+- Usage: `/upscale`
+
+**/uncrop**
+- Outpaints (uncrops) images: upload an image, select target aspect ratio and position of original content, optionally add a prompt to guide outpainting.
+- Usage: `/uncrop`
+
+**/set_watermark**
+- Toggles watermark on or off for all future generated images (admin only).
+- Usage: `/set_watermark`
 
 ## ⚙️ Configuration Options
 

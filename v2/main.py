@@ -87,25 +87,20 @@ class TelegramBot:
                     )
                 ],
                 ConversationState.WAITING_FOR_CONTROL_TYPE: [
-                    MessageHandler(
-                        filters.TEXT & ~filters.COMMAND, self.routes.handle_control_type
-                    )
+                    CallbackQueryHandler(self.routes.handle_control_type)
                 ],
                 ConversationState.WAITING_FOR_IMAGE: [
                     MessageHandler(filters.PHOTO, self.routes.handle_image)
                 ],
                 ConversationState.WAITING_FOR_SIZE: [
-                    MessageHandler(
-                        filters.TEXT & ~filters.COMMAND, self.routes.handle_size
-                    )
+                    CallbackQueryHandler(self.routes.handle_size)
                 ],
                 ConversationState.WAITING_FOR_STYLE: [
-                    MessageHandler(
-                        filters.TEXT & ~filters.COMMAND, self.routes.handle_style
-                    )
+                    CallbackQueryHandler(self.routes.handle_style)
                 ],
             },
             fallbacks=[CommandHandler("cancel", self.routes.cancel_command)],
+            conversation_timeout=STALL_TIMEOUT_DURATION,
         )
 
         # Add conversation handler for image upscaling
@@ -113,10 +108,7 @@ class TelegramBot:
             entry_points=[CommandHandler("upscale", self.routes.upscale_command)],
             states={
                 ConversationState.WAITING_FOR_UPSCALE_METHOD: [
-                    MessageHandler(
-                        filters.TEXT & ~filters.COMMAND,
-                        self.routes.handle_upscale_method,
-                    )
+                    CallbackQueryHandler(self.routes.handle_upscale_method)
                 ],
                 ConversationState.WAITING_FOR_UPSCALE_PROMPT: [
                     MessageHandler(
@@ -125,20 +117,17 @@ class TelegramBot:
                     )
                 ],
                 ConversationState.WAITING_FOR_STYLE: [
-                    MessageHandler(
-                        filters.TEXT & ~filters.COMMAND, self.routes.handle_style
-                    )
+                    CallbackQueryHandler(self.routes.handle_style)
                 ],
                 ConversationState.WAITING_FOR_IMAGE: [
                     MessageHandler(filters.PHOTO, self.routes.handle_image)
                 ],
                 ConversationState.WAITING_FOR_FORMAT: [
-                    MessageHandler(
-                        filters.TEXT & ~filters.COMMAND, self.routes.handle_format
-                    )
+                    CallbackQueryHandler(self.routes.handle_format)
                 ],
             },
             fallbacks=[CommandHandler("cancel", self.routes.cancel_command)],
+            conversation_timeout=STALL_TIMEOUT_DURATION,
         )
 
         # Add conversation handler for image reimaginer
@@ -146,18 +135,13 @@ class TelegramBot:
             entry_points=[CommandHandler("reimagine", self.routes.reimagine_command)],
             states={
                 ConversationState.WAITING_FOR_METHOD: [
-                    MessageHandler(
-                        filters.TEXT & ~filters.COMMAND, self.routes.handle_method
-                    )
+                    CallbackQueryHandler(self.routes.handle_method)
                 ],
                 ConversationState.WAITING_FOR_IMAGE: [
                     MessageHandler(filters.PHOTO, self.routes.handle_image)
                 ],
                 ConversationState.WAITING_FOR_STYLE: [
-                    MessageHandler(
-                        filters.TEXT & ~filters.COMMAND,
-                        self.routes.handle_reimagine_style,
-                    )
+                    CallbackQueryHandler(self.routes.handle_reimagine_style)
                 ],
                 ConversationState.WAITING_FOR_PROMPT: [
                     MessageHandler(
@@ -166,12 +150,11 @@ class TelegramBot:
                     )
                 ],
                 ConversationState.WAITING_FOR_FORMAT: [
-                    MessageHandler(
-                        filters.TEXT & ~filters.COMMAND, self.routes.handle_format
-                    )
+                    CallbackQueryHandler(self.routes.handle_format)
                 ],
             },
             fallbacks=[CommandHandler("cancel", self.routes.cancel_command)],
+            conversation_timeout=STALL_TIMEOUT_DURATION,
         )
 
         # Add conversation handler for the new /imagine_v2 command
@@ -184,10 +167,7 @@ class TelegramBot:
                     )
                 ],
                 ConversationState.WAITING_FOR_ASPECT_RATIO_V2: [
-                    MessageHandler(
-                        filters.TEXT & ~filters.COMMAND,
-                        self.routes.handle_aspect_ratio_v2,
-                    )
+                    CallbackQueryHandler(self.routes.handle_aspect_ratio_v2)
                 ],
                 ConversationState.WAITING_FOR_IMAGE_V2: [
                     MessageHandler(filters.PHOTO, self.routes.handle_image_v2),
@@ -195,6 +175,7 @@ class TelegramBot:
                 ],
             },
             fallbacks=[CommandHandler("cancel", self.routes.cancel_command)],
+            conversation_timeout=STALL_TIMEOUT_DURATION,
         )
 
         # Add conversation handler for uncrop/outpaint
@@ -205,16 +186,10 @@ class TelegramBot:
                     MessageHandler(filters.PHOTO, self.routes.handle_uncrop_image)
                 ],
                 ConversationState.WAITING_FOR_UNCROP_ASPECT_RATIO: [
-                    MessageHandler(
-                        filters.TEXT & ~filters.COMMAND,
-                        self.routes.handle_uncrop_aspect_ratio,
-                    )
+                    CallbackQueryHandler(self.routes.handle_uncrop_aspect_ratio)
                 ],
                 ConversationState.WAITING_FOR_UNCROP_POSITION: [
-                    MessageHandler(
-                        filters.TEXT & ~filters.COMMAND,
-                        self.routes.handle_uncrop_position,
-                    ),
+                    CallbackQueryHandler(self.routes.handle_uncrop_position),
                     CommandHandler("skip", self.routes.handle_uncrop_position),
                 ],
                 ConversationState.WAITING_FOR_UNCROP_PROMPT: [
@@ -226,6 +201,7 @@ class TelegramBot:
                 ],
             },
             fallbacks=[CommandHandler("cancel", self.routes.cancel_command)],
+            conversation_timeout=STALL_TIMEOUT_DURATION,
         )
 
         # Add all handlers
