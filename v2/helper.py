@@ -2,7 +2,7 @@ import os
 import base64
 import logging
 import time
-from typing import Optional
+from typing import Optional, Dict, Tuple, List, Any
 import requests
 from PIL import Image, ImageEnhance
 from dotenv import load_dotenv
@@ -12,9 +12,34 @@ from models import ImageConfig, GenerationParams, ReimagineParams, UnCropParams
 MAX_PIXELS = 1_048_576  # Stability AI's max pixel limit
 load_dotenv()
 
+# Helper for retry logic
+from requests.exceptions import Timeout, ConnectionError, HTTPError
+
+def retry_request(request_func, *args, **kwargs):
+    max_attempts = 3
+    delay = 1
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return request_func(*args, **kwargs)
+        except (Timeout, ConnectionError) as e:
+            logging.warning(f"Network error (attempt {attempt}): {e}. Retrying in {delay}s...")
+            if attempt == max_attempts:
+                raise
+            time.sleep(delay)
+            delay *= 2
+        except HTTPError as e:
+            # Retry only on 5xx errors
+            if 500 <= e.response.status_code < 600:
+                logging.warning(f"HTTP 5xx error (attempt {attempt}): {e}. Retrying in {delay}s...")
+                if attempt == max_attempts:
+                    raise
+                time.sleep(delay)
+                delay *= 2
+            else:
+                raise
 
 class AuthHelper:
-    def __init__(self):
+    def __init__(self) -> None:
         self.allowed_users = os.getenv("USER_ID", "").split(",")
         self.allowed_admins = os.getenv("ADMIN_ID", "").split(",")
 
@@ -26,7 +51,7 @@ class AuthHelper:
 
 
 class ImageHelper:
-    def __init__(self):
+    def __init__(self) -> None:
         self.api_key = os.getenv("STABILITY_API_KEY")
         self.output_directory = "./image"
         os.makedirs(self.output_directory, exist_ok=True)
@@ -37,7 +62,7 @@ class ImageHelper:
             os.getenv("WATERMARK_ENABLED", "true").lower() == "true"
         )
 
-    def set_watermark_status(self, status: bool):
+    def set_watermark_status(self, status: bool) -> None:
         """Allows admin to enable or disable watermarking."""
         self.watermark_enabled = status
         os.environ["WATERMARK_ENABLED"] = "true" if status else "false"
@@ -47,7 +72,7 @@ class ImageHelper:
 
     def _add_watermark(
         self, input_path: str, output_path: str, watermark_path: Optional[str] = None
-    ):
+    ) -> None:
         """Applies watermark only if enabled."""
         if (
             not self.watermark_enabled
@@ -84,7 +109,8 @@ class ImageHelper:
     def generate_image(self, params: GenerationParams) -> Optional[str]:
         try:
             self.logger.info(f"Generating image with prompt: {params.prompt}")
-            response = requests.post(
+            response = retry_request(
+                requests.post,
                 "https://api.stability.ai/v1/generation/stable-diffusion-v1-6/text-to-image",
                 headers={
                     "Content-Type": "application/json",
@@ -92,6 +118,7 @@ class ImageHelper:
                     "Authorization": f"Bearer {self.api_key}",
                 },
                 json=self._prepare_generation_params(params),
+                timeout=180,
             )
 
             response.raise_for_status()
@@ -191,7 +218,8 @@ class ImageHelper:
                 data["strength"] = strength  # Add strength parameter
 
             # Send the request to the new endpoint
-            response = requests.post(
+            response = retry_request(
+                requests.post,
                 "https://api.stability.ai/v2beta/stable-image/generate/ultra",
                 headers={
                     "Authorization": f"Bearer {self.api_key}",
@@ -199,6 +227,7 @@ class ImageHelper:
                 },
                 files=files,  # Send files here
                 data=data,  # Send non-file data here
+                timeout=180,
             )
 
             response.raise_for_status()
@@ -290,168 +319,243 @@ class ImageHelper:
         style_preset: str = "None",
     ) -> str:
         """Sends the image to Stability AI for upscaling, resizing it first if too large."""
-        host = f"https://api.stability.ai/v2beta/stable-image/upscale/{method}"
+        # Explicit endpoint selection
+        if method == "creative":
+            host = "https://api.stability.ai/v2beta/stable-image/upscale/creative"
+        elif method == "conservative":
+            host = "https://api.stability.ai/v2beta/stable-image/upscale/conservative"
+        else:
+            host = "https://api.stability.ai/v2beta/stable-image/upscale/fast"
+
+        # Validate required parameters for creative
+        if method == "creative":
+            if not prompt or not image_path or not output_format:
+                self.logger.error("Missing required parameters for creative upscaling.")
+                return None
+            if style_preset == "None":
+                style_preset = None
+            # Validate creativity range (API may require 0.0-1.0)
+            if not (0.0 <= creativity <= 1.0):
+                creativity = 0.35
+
         params = {
             "output_format": output_format,
         }
-
-        # Add additional parameters for conservative and creative modes
         if method in ["conservative", "creative"]:
-            params.update(
-                {
-                    "prompt": prompt,
-                    "negative_prompt": negative_prompt,
-                    "creativity": creativity,
-                }
-            )
-            if method == "creative" and style_preset != "None":
+            params["prompt"] = prompt
+            params["creativity"] = creativity
+            if method == "creative" and style_preset:
                 params["style_preset"] = style_preset
+            if negative_prompt:
+                params["negative_prompt"] = negative_prompt
 
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Accept": "application/json" if method == "creative" else "image/*",
         }
-
         try:
             self.logger.info(f"🚀 Starting upscaling process for: {image_path}")
-
-            # ✅ Step 1: Open image and check size
+            # Step 1: Open image and check size
             with Image.open(image_path) as img:
                 width, height = img.size
                 total_pixels = width * height
-                self.logger.info(
-                    f"📏 Original Image Size: {width}x{height} ({total_pixels} pixels)"
-                )
-
-                # ✅ Step 2: Resize if needed
+                self.logger.info(f"📏 Original Image Size: {width}x{height} ({total_pixels} pixels)")
                 if total_pixels > MAX_PIXELS:
-                    scale_factor = (
-                        MAX_PIXELS / total_pixels
-                    ) ** 0.5  # Keep aspect ratio
+                    scale_factor = (MAX_PIXELS / total_pixels) ** 0.5
                     new_width = int(width * scale_factor)
                     new_height = int(height * scale_factor)
                     self.logger.info(f"🔄 Resizing image to: {new_width}x{new_height}")
-
                     img = img.resize((new_width, new_height), Image.LANCZOS)
-
-                    # Save the resized image as a temporary file
-                    resized_path = (
-                        f"{self.output_directory}/resized_temp.{output_format}"
-                    )
+                    resized_path = f"{self.output_directory}/resized_temp.{output_format}"
                     img.save(resized_path)
-                    image_path = resized_path  # Use the resized image for upscaling
-
-            # ✅ Step 3: Send the image to Stability AI
+                    image_path = resized_path
+            # Step 2: Send the image to Stability AI
             with open(image_path, "rb") as image_file:
-                self.logger.info("📡 Sending upscale request to Stability AI...")
-                response = requests.post(
+                files = {"image": image_file}
+                self.logger.info(f"📡 Sending upscale request to Stability AI: {host}")
+                self.logger.info(f"Params: {params}")
+                response = retry_request(
+                    requests.post,
                     host,
                     headers=headers,
-                    files={"image": image_file},
+                    files=files,
                     data=params,
-                    timeout=120,
+                    timeout=180,
                 )
-
             self.logger.info(f"✅ Stability AI Response: {response.status_code}")
-
             if method == "creative":
                 # Handle creative upscaling (asynchronous workflow)
                 if response.status_code != 200:
                     self.logger.error(f"❌ Error in upscaling request: {response.text}")
                     return None
-
                 generation_id = response.json().get("id")
                 if not generation_id:
                     self.logger.error("❌ No generation ID found in the response.")
                     return None
-
                 self.logger.info(f"🔍 Generation ID: {generation_id}")
-
-                # ✅ Step 4: Poll the results endpoint to retrieve the final image
+                # Poll the results endpoint
                 results_url = f"https://api.stability.ai/v2beta/results/{generation_id}"
-                headers["Accept"] = "application/json"  # We expect JSON response
-
+                headers["Accept"] = "application/json"
+                import time as _time
+                poll_attempts = 0
                 while True:
                     self.logger.info("🔄 Polling for results...")
-                    response = requests.get(results_url, headers=headers, timeout=120)
-
-                    if response.status_code == 202:
-                        # Generation is still in progress, wait and retry
-                        self.logger.info(
-                            "⏳ Generation in progress, retrying in 10 seconds..."
-                        )
-                        time.sleep(10)
-                    elif response.status_code == 200:
-                        # Generation is complete, check if the image is ready
-                        result = response.json()
+                    poll_attempts += 1
+                    poll_response = retry_request(requests.get, results_url, headers=headers, timeout=180)
+                    self.logger.info(f"Poll response: {poll_response.status_code} {poll_response.text}")
+                    if poll_response.status_code == 202:
+                        self.logger.info("⏳ Generation in progress, retrying in 10 seconds...")
+                        _time.sleep(10)
+                    elif poll_response.status_code == 200:
+                        result = poll_response.json()
+                        # Accept both 'status': 'succeeded' and 'finish_reason': 'SUCCESS' as success
+                        is_success = False
                         if result.get("status") == "succeeded":
+                            is_success = True
+                        elif result.get("finish_reason") == "SUCCESS":
+                            is_success = True
+                        if is_success:
                             self.logger.info("✅ Generation complete!")
-                            image_url = result.get("output", [{}])[0].get("url")
-                            if not image_url:
-                                self.logger.error(
-                                    "❌ No image URL found in the response."
-                                )
-                                return None
-
-                            # Download the image
-                            self.logger.info(f"📥 Downloading image from: {image_url}")
-                            image_response = requests.get(image_url, timeout=120)
-                            if image_response.status_code != 200:
-                                self.logger.error(
-                                    f"❌ Error downloading image: {image_response.text}"
-                                )
-                                return None
-
-                            # ✅ Step 5: Save upscaled image with correct filename
-                            upscaled_path = f"{self.output_directory}/upscaled_{method}.{output_format}"
-                            with open(upscaled_path, "wb") as f:
-                                f.write(image_response.content)
-
-                            # Add watermark
-                            self._add_watermark(
-                                upscaled_path, upscaled_path, "logo.png"
-                            )
-
-                            self.logger.info(
-                                f"✅ Upscaled image saved as: {upscaled_path}"
-                            )
-                            return upscaled_path
+                            image_url = None
+                            # Try to get image URL from output
+                            output = result.get("output")
+                            if output and isinstance(output, list) and output[0].get("url"):
+                                image_url = output[0]["url"]
+                            if image_url:
+                                self.logger.info(f"📥 Downloading image from: {image_url}")
+                                image_response = retry_request(requests.get, image_url, timeout=180)
+                                if image_response.status_code != 200:
+                                    self.logger.error(f"❌ Error downloading image: {image_response.text}")
+                                    return None
+                                upscaled_path = f"{self.output_directory}/upscaled_{method}.{output_format}"
+                                with open(upscaled_path, "wb") as f:
+                                    f.write(image_response.content)
+                                self._add_watermark(upscaled_path, upscaled_path, "logo.png")
+                                self.logger.info(f"✅ Upscaled image saved as: {upscaled_path}")
+                                return upscaled_path
+                            # Fallback: check for base64 image data
+                            base64_data = result.get("base64")
+                            if base64_data:
+                                import base64 as _base64
+                                from PIL import Image as _Image
+                                from io import BytesIO as _BytesIO
+                                upscaled_path = f"{self.output_directory}/upscaled_{method}.{output_format}"
+                                try:
+                                    # Save raw base64 to txt for debugging/manual recovery
+                                    base64_txt_path = f"{self.output_directory}/upscaled_{method}_raw_base64.txt"
+                                    with open(base64_txt_path, "w") as txtf:
+                                        txtf.write(base64_data)
+                                    self.logger.info(f"[DEBUG] Saved raw base64 to {base64_txt_path}")
+                                    img_bytes = _base64.b64decode(base64_data)
+                                    self.logger.info(f"[DEBUG] Decoded base64 length: {len(img_bytes)} bytes, output_format: {output_format}, first 32 bytes: {img_bytes[:32]}")
+                                    try:
+                                        # Always save as PNG first
+                                        temp_png_path = f"{self.output_directory}/upscaled_{method}_temp.png"
+                                        with open(temp_png_path, "wb") as f:
+                                            f.write(img_bytes)
+                                        img = _Image.open(temp_png_path)
+                                        # Now convert to requested format
+                                        img = img.convert("RGB") if output_format.lower() in ["jpeg", "jpg"] else img
+                                        img.save(upscaled_path, format=output_format.upper())
+                                        os.remove(temp_png_path)
+                                    except Exception as pil_mem_err:
+                                        self.logger.warning(f"[FALLBACK] PIL failed to open from memory: {pil_mem_err}. Trying to save raw bytes and reopen.")
+                                        with open(upscaled_path, "wb") as f:
+                                            f.write(img_bytes)
+                                        try:
+                                            img = _Image.open(upscaled_path)
+                                            img = img.convert("RGB") if output_format.lower() in ["jpeg", "jpg"] else img
+                                            img.save(upscaled_path, format=output_format.upper())
+                                        except Exception as pil_disk_err:
+                                            self.logger.error(f"❌ Fallback also failed: {pil_disk_err}", exc_info=True)
+                                            # Save raw bytes for manual inspection
+                                            raw_path = f"{self.output_directory}/upscaled_{method}.raw"
+                                            with open(raw_path, "wb") as rawf:
+                                                rawf.write(img_bytes)
+                                            hex_preview = img_bytes[:100].hex()
+                                            self.logger.error(f"[DEEP DEBUG] Saved raw bytes to {raw_path}. First 100 bytes (hex): {hex_preview}")
+                                            return None
+                                    self._add_watermark(upscaled_path, upscaled_path, "logo.png")
+                                    self.logger.info(f"✅ Upscaled image (base64) saved as: {upscaled_path}")
+                                    return upscaled_path
+                                except Exception as e:
+                                    self.logger.error(f"❌ Exception decoding/saving base64 image: {e}", exc_info=True)
+                                    return None
+                            # Fallback: check for artifacts with base64
+                            artifacts = result.get("artifacts")
+                            if artifacts and isinstance(artifacts, list) and artifacts[0].get("base64"):
+                                import base64 as _base64
+                                from PIL import Image as _Image
+                                from io import BytesIO as _BytesIO
+                                upscaled_path = f"{self.output_directory}/upscaled_{method}.{output_format}"
+                                try:
+                                    # Save raw base64 to txt for debugging/manual recovery
+                                    artifacts_base64_txt_path = f"{self.output_directory}/upscaled_{method}_artifacts_raw_base64.txt"
+                                    with open(artifacts_base64_txt_path, "w") as txtf:
+                                        txtf.write(artifacts[0]["base64"])
+                                    self.logger.info(f"[DEBUG] Saved artifacts raw base64 to {artifacts_base64_txt_path}")
+                                    img_bytes = _base64.b64decode(artifacts[0]["base64"])
+                                    self.logger.info(f"[DEBUG] Decoded artifacts base64 length: {len(img_bytes)} bytes, output_format: {output_format}, first 32 bytes: {img_bytes[:32]}")
+                                    try:
+                                        temp_png_path = f"{self.output_directory}/upscaled_{method}_temp.png"
+                                        with open(temp_png_path, "wb") as f:
+                                            f.write(img_bytes)
+                                        img = _Image.open(temp_png_path)
+                                        img = img.convert("RGB") if output_format.lower() in ["jpeg", "jpg"] else img
+                                        img.save(upscaled_path, format=output_format.upper())
+                                        os.remove(temp_png_path)
+                                    except Exception as pil_mem_err:
+                                        self.logger.warning(f"[FALLBACK] PIL failed to open from memory: {pil_mem_err}. Trying to save raw bytes and reopen.")
+                                        with open(upscaled_path, "wb") as f:
+                                            f.write(img_bytes)
+                                        try:
+                                            img = _Image.open(upscaled_path)
+                                            img = img.convert("RGB") if output_format.lower() in ["jpeg", "jpg"] else img
+                                            img.save(upscaled_path, format=output_format.upper())
+                                        except Exception as pil_disk_err:
+                                            self.logger.error(f"❌ Fallback also failed: {pil_disk_err}", exc_info=True)
+                                            raw_path = f"{self.output_directory}/upscaled_{method}.raw"
+                                            with open(raw_path, "wb") as rawf:
+                                                rawf.write(img_bytes)
+                                            hex_preview = img_bytes[:100].hex()
+                                            self.logger.error(f"[DEEP DEBUG] Saved raw bytes to {raw_path}. First 100 bytes (hex): {hex_preview}")
+                                            return None
+                                    self._add_watermark(upscaled_path, upscaled_path, "logo.png")
+                                    self.logger.info(f"✅ Upscaled image (artifacts base64) saved as: {upscaled_path}")
+                                    return upscaled_path
+                                except Exception as e:
+                                    self.logger.error(f"❌ Exception decoding/saving artifacts base64 image: {e}", exc_info=True)
+                                    return None
+                            # If no image found, log and return None
+                            self.logger.error(f"❌ No image URL or base64 found in the response. Full poll response: {result}")
+                            return None
                         else:
-                            self.logger.error(
-                                f"❌ Generation failed with status: {result.get('status')}"
-                            )
+                            # Improved error logging for failed jobs
+                            self.logger.error(f"❌ Generation failed. Full poll response: {result}")
+                            if 'error' in result:
+                                self.logger.error(f"API error: {result['error']}")
+                            if 'message' in result:
+                                self.logger.error(f"API message: {result['message']}")
                             return None
                     else:
-                        self.logger.error(
-                            f"❌ Error in results request: {response.text}"
-                        )
+                        self.logger.error(f"❌ Error in results request: {poll_response.text}")
                         return None
             else:
                 # Handle conservative and fast upscaling (synchronous workflow)
                 if response.status_code != 200:
                     self.logger.error(f"❌ Error in upscaling request: {response.text}")
                     return None
-
-                # ✅ Step 4: Save upscaled image with correct filename
-                upscaled_path = (
-                    f"{self.output_directory}/upscaled_{method}.{output_format}"
-                )
+                upscaled_path = f"{self.output_directory}/upscaled_{method}.{output_format}"
                 with open(upscaled_path, "wb") as f:
                     f.write(response.content)
-
-                # Add watermark
                 self._add_watermark(upscaled_path, upscaled_path, "logo.png")
-
                 self.logger.info(f"✅ Upscaled image saved as: {upscaled_path}")
                 return upscaled_path
-
         except requests.exceptions.Timeout:
-            self.logger.error("⏳ Upscaling request timed out.")
+            self.logger.error("Upscaling timed out after multiple attempts.")
             return None
         except requests.exceptions.HTTPError as e:
-            self.logger.error(
-                f"❌ HTTP Error in upscaling: {e.response.status_code} - {e.response.text}"
-            )
+            self.logger.error(f"❌ HTTP Error in upscaling: {e.response.status_code} - {e.response.text}")
             return None
         except Exception as e:
             self.logger.error(f"❌ General Error in upscaling: {e}")
@@ -475,7 +579,8 @@ class ImageHelper:
             if params.style != "None":
                 request_params["style_preset"] = params.style  # Apply style if selected
 
-            response = requests.post(
+            response = retry_request(
+                requests.post,
                 host,
                 headers={
                     "Authorization": f"Bearer {self.api_key}",
@@ -483,6 +588,7 @@ class ImageHelper:
                 },
                 files={"image": open(params.control_image, "rb")},
                 data=request_params,
+                timeout=180,
             )
 
             response.raise_for_status()
@@ -638,7 +744,8 @@ class ImageHelper:
             }
 
             with open(params.image_path, "rb") as image_file:
-                response = requests.post(
+                response = retry_request(
+                    requests.post,
                     host,
                     headers={
                         "Authorization": f"Bearer {self.api_key}",
@@ -646,7 +753,7 @@ class ImageHelper:
                     },
                     files={"image": image_file},
                     data=request_params,
-                    timeout=120,
+                    timeout=180,
                 )
 
             response.raise_for_status()

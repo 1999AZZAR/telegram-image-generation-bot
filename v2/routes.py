@@ -16,7 +16,8 @@ import os
 import asyncio
 import time
 import functools
-from typing import Optional
+from typing import Optional, Any, Callable, Awaitable
+import requests
 
 
 from helper import AuthHelper, ImageHelper
@@ -30,33 +31,34 @@ from models import (
 
 
 # Centralized error handling decorator
-def handle_errors(func):
+def handle_errors(func: Callable[..., Awaitable[Any]]) -> Callable[..., Awaitable[Any]]:
     @functools.wraps(func)
-    async def wrapper(self, update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
+    async def wrapper(self: Any, update: Update, context: ContextTypes.DEFAULT_TYPE, *args: Any, **kwargs: Any) -> Any:
         try:
             return await func(self, update, context, *args, **kwargs)
         except Exception as e:
             self.logger.error(f"Error in {func.__name__}: {e}", exc_info=True)
             await update.effective_message.reply_text("❌ An error occurred. Please try again later.")
+            context.user_data.clear()
             return ConversationHandler.END
     return wrapper
 
 
 # Decorator to enforce correct conversation state
-def validate_state(expected_state: ConversationState):
+def validate_state(expected_state: ConversationState) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """No-op decorator for conversation state validation."""
-    def decorator(func):
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         return func
     return decorator
 
 
 class TelegramRoutes:
-    def __init__(self, auth_helper, image_helper):
+    def __init__(self, auth_helper: AuthHelper, image_helper: ImageHelper) -> None:
         self.auth_helper = auth_helper
         self.image_helper = image_helper
         self.logger = logging.getLogger(__name__)
 
-    async def _update_last_message_time(self, context: ContextTypes.DEFAULT_TYPE):
+    async def _update_last_message_time(self, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Updates the last message time in user_data."""
         context.user_data["last_message_time"] = time.time()
 
@@ -237,21 +239,23 @@ class TelegramRoutes:
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> int:
         await self._update_last_message_time(context)
-        """Handles style selection; schedules background image processing."""
         style = update.callback_query.data
         context.user_data["style"] = style
         generation_type = context.user_data.get("generation_type")
         context.user_data.pop("current_state", None)
-        # Acknowledge button and update UI
         await update.callback_query.answer()
+        if generation_type == "Upscale" and context.user_data.get("upscale_method") == "creative":
+            await update.callback_query.edit_message_text(
+                "📷 Please send the image you want to upscale."
+            )
+            return ConversationState.WAITING_FOR_IMAGE
         await update.callback_query.edit_message_text("🎨 Generating your image...")
-        # Prepare data for background task
         prompt = context.user_data.get("prompt", "")
         size = context.user_data.get("size", "square")
         control_image = context.user_data.get("control_image", None)
         chat_id = update.effective_chat.id
         bot = context.bot
-        # Launch background processing
+        await bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
         asyncio.create_task(
             self._process_image(
                 bot, chat_id, generation_type, style, prompt, size, control_image
@@ -261,46 +265,54 @@ class TelegramRoutes:
 
     async def _process_image(
         self,
-        bot,
+        bot: Any,
         chat_id: int,
         generation_type: str,
         style: str,
         prompt: str,
         size: str,
         control_image: Optional[str],
-    ):
+    ) -> None:
         try:
             await bot.send_chat_action(
                 chat_id=chat_id, action=ChatAction.UPLOAD_PHOTO
             )
+            # Progress update: after 10 seconds, send a message if still running
+            import asyncio
+            progress_task = asyncio.create_task(self._send_progress_update(bot, chat_id))
             if generation_type == "Reimagine":
                 params = ReimagineParams(
                     prompt=prompt, control_image=control_image, style=style
                 )
                 send_func = bot.send_photo
                 caption = "🎭 Here's your reimagined image!"
+                image_path = await asyncio.to_thread(self.image_helper.reimagine_image, params)
             else:
                 params = GenerationParams(
                     prompt=prompt, style=style, size=size, control_image=control_image
                 )
                 send_func = bot.send_photo
                 caption = "🎨 Here's your generated image!"
-            image_path = (
-                self.image_helper.reimagine_image(params)
-                if generation_type == "Reimagine"
-                else self.image_helper.generate_image(params)
-            )
+                image_path = await asyncio.to_thread(self.image_helper.generate_image, params)
+            progress_task.cancel()
             if not image_path:
                 raise Exception("Image processing failed")
-            with open(image_path, "rb") as f:
-                await send_func(chat_id=chat_id, photo=f, caption=caption)
-            os.remove(image_path)
+            from io import BytesIO
+            file_bytes = await asyncio.to_thread(lambda: open(image_path, "rb").read())
+            file_obj = BytesIO(file_bytes)
+            await send_func(chat_id=chat_id, photo=file_obj, caption=caption)
+            await asyncio.to_thread(os.remove, image_path)
         except Exception as e:
+            await bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
             self.logger.error(f"Error in background image processing: {e}")
             await bot.send_message(
                 chat_id=chat_id,
-                text="❌ Sorry, there was an error processing your image. Please try again.",
+                text="❌ Sorry, there was an error processing your image. Please try again later. If the problem persists, contact support.",
             )
+
+    async def _send_progress_update(self, bot: Any, chat_id: int) -> None:
+        await asyncio.sleep(10)
+        await bot.send_message(chat_id=chat_id, text="⏳ Still working on your image... Please wait.")
 
     @handle_errors
     async def upscale_command(
@@ -364,17 +376,19 @@ class TelegramRoutes:
     ) -> ConversationState:
         await self._update_last_message_time(context)
         """Handles the selection of upscaling method (conservative, creative, fast)."""
-        method = update.callback_query.data
-        if method not in ["conservative", "creative", "fast"]:
+        method = update.callback_query.data.strip().lower()
+        valid_methods = {"conservative", "creative", "fast"}
+        if method not in valid_methods:
             await update.callback_query.answer()
             await update.callback_query.edit_message_text(
                 "❌ Invalid method. Please choose 'Conservative', 'Creative', or 'Fast'."
             )
-            return ConversationState.WAITING_FOR_UPSCALE_METHOD
+            context.user_data.clear()
+            return ConversationHandler.END
 
         context.user_data["upscale_method"] = method
 
-        if method in ["conservative", "creative"]:
+        if method in {"conservative", "creative"}:
             await update.callback_query.answer()
             await update.callback_query.edit_message_text("✏️ Please provide a prompt for upscaling.")
             return ConversationState.WAITING_FOR_UPSCALE_PROMPT
@@ -483,9 +497,7 @@ class TelegramRoutes:
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> int:
         await self._update_last_message_time(context)
-        """Handles image upscaling and sends back the result as a file."""
         upscale_method = context.user_data.get("upscale_method", "fast")
-
         if upscale_method == "creative":
             await update.callback_query.answer()
             await update.callback_query.edit_message_text(
@@ -496,12 +508,12 @@ class TelegramRoutes:
             await update.callback_query.edit_message_text(
                 "🔄 Upscaling your image..."
             )
-
         try:
             await context.bot.send_chat_action(
                 chat_id=update.effective_chat.id, action=ChatAction.UPLOAD_DOCUMENT
             )
-
+            import asyncio
+            progress_task = asyncio.create_task(self._send_progress_update(context.bot, update.effective_chat.id))
             image_path = context.user_data.get("image", "")
             output_format = update.callback_query.data
             prompt = context.user_data.get("upscale_prompt", "")
@@ -512,38 +524,45 @@ class TelegramRoutes:
                 if upscale_method == "creative"
                 else "None"
             )
-
-            upscaled_image_path = self.image_helper.upscale_image(
+            upscaled_image_path = await asyncio.to_thread(
+                self.image_helper.upscale_image,
                 image_path,
                 output_format,
-                method=upscale_method,
-                prompt=prompt,
-                negative_prompt=negative_prompt,
-                creativity=creativity,
-                style_preset=style_preset,
+                upscale_method,
+                prompt,
+                negative_prompt,
+                creativity,
+                style_preset,
             )
-
+            progress_task.cancel()
             if not upscaled_image_path:
                 raise Exception("Image upscaling failed")
-
-            with open(upscaled_image_path, "rb") as file:
-                await context.bot.send_document(
-                    chat_id=update.effective_chat.id,
-                    document=file,
-                    filename=f"upscaled.{output_format}",  # ✅ Ensures correct filename when sending
-                    caption=f"🖼️ Here's your upscaled image (using {upscale_method} method).",
-                )
-
-            os.remove(upscaled_image_path)
-
+            from io import BytesIO
+            file_bytes = await asyncio.to_thread(lambda: open(upscaled_image_path, "rb").read())
+            file_obj = BytesIO(file_bytes)
+            await context.bot.send_document(
+                chat_id=update.effective_chat.id,
+                document=file_obj,
+                filename=f"upscaled.{output_format}",
+                caption=f"🖼️ Here's your upscaled image (using {upscale_method} method).",
+            )
+            await asyncio.to_thread(os.remove, upscaled_image_path)
+        except requests.exceptions.Timeout:
+            await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
+            self.logger.error("Upscaling timed out after multiple attempts.")
+            await update.effective_message.reply_text(
+                "⏳ The upscaling operation timed out. This can happen if the server is busy or the image is too large. Please try again later or use a smaller image."
+            )
+            context.user_data.clear()
+            return ConversationHandler.END
         except Exception as e:
+            await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
             self.logger.error(f"Error in handle_format: {e}")
             await update.effective_message.reply_text(
-                "❌ Sorry, there was an error upscaling your image. Please try again."
+                "❌ Sorry, there was an error upscaling your image. Please try again later. If the problem persists, contact support."
             )
-            if "current_state" in context.user_data:
-                del context.user_data["current_state"]  # Clear the current state
-
+            context.user_data.clear()
+            return ConversationHandler.END
         return ConversationHandler.END
 
     @handle_errors
@@ -638,7 +657,7 @@ class TelegramRoutes:
                 ),  # Include the selected method
             )
 
-            image_path = self.image_helper.reimagine_image(params)
+            image_path = await asyncio.to_thread(self.image_helper.reimagine_image, params)
 
             if not image_path:
                 raise Exception("Reimagining failed")
@@ -650,7 +669,7 @@ class TelegramRoutes:
                     caption="🎭 Here's your reimagined image!",
                 )
 
-            os.remove(image_path)
+            await asyncio.to_thread(os.remove, image_path)
 
         except Exception as e:
             self.logger.error(f"Error in handle_reimagine_prompt: {e}")
@@ -726,7 +745,6 @@ class TelegramRoutes:
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> ConversationState:
         await self._update_last_message_time(context)
-        """Handles the optional image upload for the new image generation flow."""
         if update.message.text == "/skip":
             context.user_data["image"] = None
         else:
@@ -747,41 +765,42 @@ class TelegramRoutes:
                     "❌ Failed to download image. Please try again."
                 )
                 return ConversationHandler.END
-
         await update.message.reply_text(
             "🖼️ Generating your image..."
         )
-
         try:
             await context.bot.send_chat_action(
                 chat_id=update.effective_chat.id, action=ChatAction.UPLOAD_PHOTO
             )
-
-            image_path = self.image_helper.generate_image_v2(
-                prompt=context.user_data["prompt"],
-                output_format="png",
-                image=context.user_data.get("image"),
-                aspect_ratio=context.user_data.get("aspect_ratio"),
+            # Progress update: after 10 seconds, send a message if still running
+            import asyncio
+            progress_task = asyncio.create_task(self._send_progress_update(context.bot, update.effective_chat.id))
+            image_path = await asyncio.to_thread(
+                self.image_helper.generate_image_v2,
+                context.user_data["prompt"],
+                "png",
+                context.user_data.get("image"),
+                None,
+                context.user_data.get("aspect_ratio"),
             )
-
+            progress_task.cancel()
             if not image_path:
                 raise Exception("Image generation failed")
-
-            with open(image_path, "rb") as photo:
-                await context.bot.send_photo(
-                    chat_id=update.effective_chat.id,
-                    photo=photo,
-                    caption="🎨 Here's your generated image!",
-                )
-
-            os.remove(image_path)
-
+            from io import BytesIO
+            file_bytes = await asyncio.to_thread(lambda: open(image_path, "rb").read())
+            file_obj = BytesIO(file_bytes)
+            await context.bot.send_photo(
+                chat_id=update.effective_chat.id,
+                photo=file_obj,
+                caption="🎨 Here's your generated image!",
+            )
+            await asyncio.to_thread(os.remove, image_path)
         except Exception as e:
+            await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
             self.logger.error(f"Error in handle_image_v2: {e}")
             await update.effective_message.reply_text(
-                "❌ Sorry, there was an error generating your image. Please try again."
+                "❌ Sorry, there was an error generating your image. Please try again later. If the problem persists, contact support."
             )
-
         return ConversationHandler.END
 
     @handle_errors
@@ -924,16 +943,19 @@ class TelegramRoutes:
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> int:
         await self._update_last_message_time(context)
-        """Handles the uncrop prompt and starts the outpainting process."""
         if update.message.text != "/skip":
             context.user_data["uncrop_prompt"] = update.message.text
-
         await update.message.reply_text(
             "🔄 Performing outpainting (uncrop)... This may take a moment.\n"
             "⚠️ Note: Large images will be automatically resized to fit API limits."
         )
-
         try:
+            await context.bot.send_chat_action(
+                chat_id=update.effective_chat.id, action=ChatAction.UPLOAD_PHOTO
+            )
+            # Progress update: after 10 seconds, send a message if still running
+            import asyncio
+            progress_task = asyncio.create_task(self._send_progress_update(context.bot, update.effective_chat.id))
             params = UnCropParams(
                 image_path=context.user_data["uncrop_image"],
                 target_aspect_ratio=context.user_data["uncrop_aspect_ratio"],
@@ -941,25 +963,23 @@ class TelegramRoutes:
                 output_format="png",
                 position=context.user_data.get("uncrop_position", "middle"),
             )
-
-            image_path = self.image_helper.uncrop_image(params)
-
+            image_path = await asyncio.to_thread(self.image_helper.uncrop_image, params)
+            progress_task.cancel()
             if not image_path:
                 raise Exception("Outpainting failed")
-
-            with open(image_path, "rb") as photo:
-                await context.bot.send_photo(
-                    chat_id=update.effective_chat.id,
-                    photo=photo,
-                    caption="🖼️ Here's your outpainted (uncropped) image!",
-                )
-
-            os.remove(image_path)
-
+            from io import BytesIO
+            file_bytes = await asyncio.to_thread(lambda: open(image_path, "rb").read())
+            file_obj = BytesIO(file_bytes)
+            await context.bot.send_photo(
+                chat_id=update.effective_chat.id,
+                photo=file_obj,
+                caption="🖼️ Here's your outpainted (uncropped) image!",
+            )
+            await asyncio.to_thread(os.remove, image_path)
         except Exception as e:
+            await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
             self.logger.error(f"Error in handle_uncrop_prompt: {e}")
             await update.effective_message.reply_text(
-                "❌ Sorry, there was an error during outpainting. Please try again with a smaller image."
+                "❌ Sorry, there was an error during outpainting. Please try again later. If the problem persists, contact support."
             )
-
         return ConversationHandler.END

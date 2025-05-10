@@ -16,6 +16,7 @@ import os
 import asyncio
 import time
 from colorlog import ColoredFormatter
+from typing import Any
 
 from models import ConversationState
 from helper import AuthHelper, ImageHelper
@@ -27,7 +28,7 @@ STALL_TIMEOUT_DURATION = 180  # 3 minutes for overall inactivity
 
 
 class TelegramBot:
-    def __init__(self):
+    def __init__(self) -> None:
         load_dotenv()
 
         # Initialize logging
@@ -41,7 +42,7 @@ class TelegramBot:
         # Setup application
         self.application = self._create_application()
 
-    def _setup_logging(self):
+    def _setup_logging(self) -> None:
         """Set up logging with a custom format and suppress unnecessary logs."""
         # Create a logger
         self.logger = logging.getLogger(__name__)
@@ -231,7 +232,7 @@ class TelegramBot:
 
         return app
 
-    async def _check_timeout(self, context: ContextTypes.DEFAULT_TYPE):
+    async def _check_timeout(self, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Checks for conversations that have timed out and cancels them."""
         for chat_id, user_data in context.application.user_data.items():
             if "last_message_time" in user_data:
@@ -258,7 +259,7 @@ class TelegramBot:
                     # Reset the last message time to give the user another chance
                     user_data["last_message_time"] = time.time()
 
-    def run(self):
+    def run(self) -> None:
         self.logger.info("Starting bot...")
         self.application.run_polling()
 
