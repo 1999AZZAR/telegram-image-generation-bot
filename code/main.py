@@ -33,14 +33,19 @@ class TelegramBot:
 
         # Initialize logging
         self._setup_logging()
+        self.logger.info("Initializing TelegramBot...")
 
         # Initialize helpers and routes
+        self.logger.info("Creating auth and image helpers...")
         self.auth_helper = AuthHelper()
         self.image_helper = ImageHelper()
         self.routes = TelegramRoutes(self.auth_helper, self.image_helper)
+        self.logger.info("Helpers and routes created")
 
         # Setup application
+        self.logger.info("Creating Telegram application...")
         self.application = self._create_application()
+        self.logger.info("TelegramBot initialization complete")
 
     def _setup_logging(self) -> None:
         """Set up logging with a custom format and suppress unnecessary logs."""
@@ -76,7 +81,24 @@ class TelegramBot:
         self.logger.info("Logging setup complete. Starting bot...")
 
     def _create_application(self) -> Application:
-        app = Application.builder().token(os.getenv("TELEGRAM_BOT_TOKEN")).build()
+        # Try using synchronous requests backend instead of async httpx
+        from telegram.request import HTTPXRequest
+
+        # Use synchronous request backend which might be more stable
+        request = HTTPXRequest(
+            connection_pool_size=2,  # Reduced pool size
+            read_timeout=60.0,       # Increased timeouts
+            write_timeout=60.0,
+            connect_timeout=30.0,
+            pool_timeout=60.0,
+        )
+
+        app = (
+            Application.builder()
+            .token(os.getenv("TELEGRAM_BOT_TOKEN"))
+            .request(request)
+            .build()
+        )
 
         # Add conversation handler for image generation
         conv_handler_image = ConversationHandler(
@@ -321,8 +343,60 @@ class TelegramBot:
                     user_data["last_message_time"] = time.time()
 
     def run(self) -> None:
+        """Run the bot with manual polling control."""
+        import asyncio
+
         self.logger.info("Starting bot...")
-        self.application.run_polling()
+        try:
+            # Run the async polling manually
+            asyncio.run(self._run_async())
+        except KeyboardInterrupt:
+            self.logger.info("Bot stopped by user")
+        except Exception as e:
+            self.logger.error(f"Bot failed: {e}", exc_info=True)
+            raise
+
+    async def _run_async(self) -> None:
+        """Run the bot asynchronously with better error handling."""
+        try:
+            self.logger.info("Initializing application...")
+            await self.application.initialize()
+            self.logger.info("Application initialized successfully")
+
+            self.logger.info("Starting application...")
+            await self.application.start()
+            self.logger.info("Application started successfully")
+
+            self.logger.info("Starting polling...")
+            await self.application.updater.start_polling()
+            self.logger.info("Polling started successfully")
+
+            # Keep the bot running
+            self.logger.info("Bot is now running. Press Ctrl+C to stop.")
+
+            # Wait indefinitely
+            import signal
+            stop_event = asyncio.Event()
+
+            def signal_handler(signum, frame):
+                self.logger.info("Received stop signal, shutting down...")
+                stop_event.set()
+
+            signal.signal(signal.SIGINT, signal_handler)
+            signal.signal(signal.SIGTERM, signal_handler)
+
+            await stop_event.wait()
+
+        except Exception as e:
+            self.logger.error(f"Async run failed: {e}", exc_info=True)
+            raise
+        finally:
+            self.logger.info("Stopping application...")
+            try:
+                await self.application.stop()
+                self.logger.info("Application stopped")
+            except Exception as e:
+                self.logger.error(f"Error stopping application: {e}")
 
 
 if __name__ == "__main__":

@@ -901,9 +901,12 @@ class ImageHelper:
             response = None
             last_error = None
 
+            self.logger.info(f"Starting search and replace with prompts: '{search_prompt}' -> '{replace_prompt}'")
+
             # First attempt: combined prompt
             try:
-                self.logger.info(f"Attempting search and replace with combined prompt: '{combined_prompt}'")
+                combined_prompt = f"Replace {search_prompt} with {replace_prompt}"
+                self.logger.info(f"Trying combined prompt approach: '{combined_prompt}'")
                 response = retry_request(
                     requests.post,
                     "https://api.stability.ai/v2beta/stable-image/edit/search-and-replace",
@@ -917,16 +920,32 @@ class ImageHelper:
                     },
                     timeout=180,
                 )
-                self.logger.info("Search and replace with combined prompt succeeded")
+
+                # Check response status and JSON errors
+                response.raise_for_status()
+                data = response.json()
+
+                # Check if the response contains errors even with HTTP 200
+                if "errors" in data:
+                    error_msg = f"API returned errors in response: {data['errors']}"
+                    self.logger.info(f"Combined prompt failed with JSON errors: {error_msg}")
+                    # Create an HTTPError to trigger fallback
+                    api_error = requests.exceptions.HTTPError(error_msg)
+                    api_error.response = type('MockResponse', (), {'text': str(data)})()
+                    raise api_error
+
+                self.logger.info("Combined prompt approach succeeded")
+                # If we get here, the combined prompt worked
             except requests.exceptions.HTTPError as api_error:
                 last_error = api_error
                 error_text = str(api_error.response.text).lower()
-                self.logger.info(f"Combined prompt failed, error: {error_text}")
+                error_text = str(api_error.response.text).lower()
+                self.logger.info(f"Combined prompt failed: {api_error}")
 
                 # If it mentions separate parameters, try that approach
                 if "search_prompt" in error_text or "replace_prompt" in error_text:
+                    self.logger.info("Trying separate parameters approach")
                     try:
-                        self.logger.info("API requires separate search_prompt and replace_prompt parameters, trying that")
                         response = retry_request(
                             requests.post,
                             "https://api.stability.ai/v2beta/stable-image/edit/search-and-replace",
@@ -941,18 +960,39 @@ class ImageHelper:
                             },
                             timeout=180,
                         )
-                        self.logger.info("Search and replace with separate prompts succeeded")
+
+                        # Check response status and JSON errors
+                        response.raise_for_status()
+                        data = response.json()
+
+                        # Check if the response contains errors even with HTTP 200
+                        if "errors" in data:
+                            error_msg = f"API returned errors in response: {data['errors']}"
+                            self.logger.info(f"Separate prompts failed with JSON errors: {error_msg}")
+                            # Create an HTTPError to trigger final failure
+                            second_error = requests.exceptions.HTTPError(error_msg)
+                            second_error.response = type('MockResponse', (), {'text': str(data)})()
+                            raise second_error
+
+                        self.logger.info("Separate parameters approach succeeded")
+
                     except requests.exceptions.HTTPError as second_error:
                         last_error = second_error
                         # If separate parameters also fail, continue to outer catch
                         pass
 
             # If both attempts failed, raise the last error
-            if response is None and last_error:
-                raise last_error
+            if response is None:
+                if last_error:
+                    raise last_error
+                else:
+                    raise Exception("Both search and replace attempts failed with unknown error")
 
-            response.raise_for_status()
+            # At this point, response should be successful (no JSON errors)
+            # But let's double-check to be safe
             data = response.json()
+            if "errors" in data:
+                raise Exception(f"Unexpected JSON errors in successful response: {data['errors']}")
 
             output_path = (
                 f'{self.output_directory}/replace_{data["artifacts"][0]["seed"]}.png'
