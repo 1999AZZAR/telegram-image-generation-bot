@@ -6,6 +6,7 @@ from typing import Optional, Dict, Tuple, List, Any
 import requests
 from PIL import Image, ImageEnhance
 from dotenv import load_dotenv
+from deep_translator import GoogleTranslator
 
 from models import ImageConfig, GenerationParams, ReimagineParams, UnCropParams
 
@@ -14,6 +15,42 @@ load_dotenv()
 
 # Helper for retry logic
 from requests.exceptions import Timeout, ConnectionError, HTTPError
+
+def translate_to_english(text: str) -> Tuple[str, bool]:
+    """
+    Translate text to English if it's not already in English.
+
+    Args:
+        text: The text to potentially translate
+
+    Returns:
+        Tuple of (translated_text, was_translated)
+    """
+    try:
+        # First, try to detect if it's already English by attempting translation
+        # and checking if the result is significantly different
+        translator = GoogleTranslator(source='auto', target='en')
+        translated_text = translator.translate(text)
+
+        # Simple check: if the translated text is very similar to original, assume it's English
+        # This is a basic heuristic - could be improved with better language detection
+        if translated_text.lower().strip() == text.lower().strip():
+            return text, False  # Already in English
+
+        # Additional check: if translation only changed punctuation/spacing, consider it English
+        import re
+        original_clean = re.sub(r'[^\w\s]', '', text.lower())
+        translated_clean = re.sub(r'[^\w\s]', '', translated_text.lower())
+
+        if original_clean == translated_clean:
+            return text, False  # Already in English (minor differences only)
+
+        return translated_text, True  # Was translated
+
+    except Exception as e:
+        # If translation fails, log the error and return original text
+        logging.warning(f"Translation failed for text: '{text}'. Error: {e}")
+        return text, False  # Return original text if translation fails
 
 def retry_request(request_func, *args, **kwargs):
     max_attempts = 3
@@ -108,16 +145,26 @@ class ImageHelper:
 
     def generate_image(self, params: GenerationParams) -> Optional[str]:
         try:
+            # Translate prompt to English if needed
+            translated_prompt, was_translated = translate_to_english(params.prompt)
+
+            if was_translated:
+                self.logger.info(f"Translated prompt from '{params.prompt}' to '{translated_prompt}'")
+                # Update the prompt for API call
+                original_prompt = params.prompt
+                params.prompt = translated_prompt
+            else:
+                self.logger.info(f"Using original prompt (already in English): {params.prompt}")
+
             self.logger.info(f"Generating image with prompt: {params.prompt}")
             response = retry_request(
                 requests.post,
-                "https://api.stability.ai/v1/generation/stable-diffusion-v1-6/text-to-image",
+                "https://api.stability.ai/v2beta/stable-image/generate/sd3",
                 headers={
-                    "Content-Type": "application/json",
                     "Accept": "application/json",
                     "Authorization": f"Bearer {self.api_key}",
                 },
-                json=self._prepare_generation_params(params),
+                files=self._prepare_generation_params(params),
                 timeout=180,
             )
 
@@ -159,11 +206,18 @@ class ImageHelper:
             Optional[str]: Path to the generated image, or None if generation fails.
         """
         try:
-            self.logger.info(f"Generating image with prompt: {prompt}")
+            # Translate prompt to English if needed
+            translated_prompt, was_translated = translate_to_english(prompt)
+
+            if was_translated:
+                self.logger.info(f"Translated prompt from '{prompt}' to '{translated_prompt}'")
+                prompt = translated_prompt  # Update prompt for API call
+            else:
+                self.logger.info(f"Using original prompt (already in English): {prompt}")
 
             # Prepare the request data
             data = {
-                "prompt": prompt,  # Fix typo: "prompt" instead of "prompt"
+                "prompt": prompt,
                 "output_format": output_format,
             }
 
@@ -255,58 +309,10 @@ class ImageHelper:
             return None
 
     def _prepare_generation_params(self, params: GenerationParams) -> dict:
-        image_config = ImageConfig()  # Load predefined size mappings and styles
-
-        generation_params = {
-            "samples": 1,
-            "steps": 50,
-            "cfg_scale": 5.5,
-            "text_prompts": [
-                {"text": params.prompt, "weight": 1},  # User's main prompt
-                {
-                    "text": "The artwork showcases excellent anatomy with a clear, complete, and appealing depiction. "
-                    "It has well-proportioned and polished details, presenting a unique and balanced composition. "
-                    "The high-resolution image is undamaged and well-formed, conveying a healthy and natural appearance "
-                    "without mutations or blemishes. The positive aspect of the artwork is highlighted by its skillful "
-                    "framing and realistic features, including a well-drawn face and hands. The absence of signatures "
-                    "contributes to its seamless and authentic quality, and the depiction of straight fingers adds to "
-                    "its overall attractiveness.",
-                    "weight": 0.3,  # Positive reinforcement for high-quality results
-                },
-                {
-                    "text": "2 faces, 2 heads, bad anatomy, blurry, cloned face, cropped image, cut-off, deformed hands, "
-                    "disconnected limbs, disgusting, disfigured, draft, duplicate artifact, extra fingers, extra limb, "
-                    "floating limbs, gloss proportions, grain, gross proportions, long body, long neck, low-res, mangled, "
-                    "malformed, malformed hands, missing arms, missing limb, morbid, mutation, mutated, mutated hands, "
-                    "mutilated, mutilated hands, multiple heads, negative aspect, out of frame, poorly drawn, poorly drawn face, "
-                    "poorly drawn hands, signatures, surreal, tiling, twisted fingers, ugly",
-                    "weight": -1,  # Negative prompt to avoid unwanted artifacts
-                },
-            ],
+        # Simplified for v2beta API - only prompt is needed
+        return {
+            "prompt": (None, params.prompt),
         }
-
-        # Set image dimensions based on user selection
-        if params.size in image_config.SIZE_MAPPING:
-            height, width = image_config.SIZE_MAPPING[params.size]
-            generation_params.update({"height": height, "width": width})
-
-        # Apply style preset if selected
-        if params.style != "None":
-            generation_params["style_preset"] = params.style
-
-        # **Handle Control-Based Image Generation**
-        if params.control_image:
-            generation_params["image"] = params.control_image
-            generation_params[
-                "host"
-            ] = "https://api.stability.ai/v2beta/stable-image/control/style"
-            generation_params["fidelity"] = 0.9
-        else:
-            generation_params[
-                "host"
-            ] = "https://api.stability.ai/v1/generation/stable-diffusion-v1-6/text-to-image"
-
-        return generation_params
 
     def upscale_image(
         self,
@@ -786,4 +792,257 @@ class ImageHelper:
             return None
         except Exception as e:
             self.logger.error(f"Error in uncrop_image: {e}", exc_info=True)
+            return None
+
+    def erase_object(
+        self,
+        image_path: str,
+        mask_path: str,
+        output_format: str = "png",
+    ) -> Optional[str]:
+        """
+        Erase objects from an image using a mask.
+
+        Args:
+            image_path (str): Path to the input image.
+            mask_path (str): Path to the mask image indicating what to erase.
+            output_format (str): The format of the output image.
+
+        Returns:
+            Optional[str]: Path to the edited image, or None if editing fails.
+        """
+        try:
+            self.logger.info(f"Erasing objects from image: {image_path}")
+
+            # Read the input image
+            with open(image_path, "rb") as img_file:
+                image_data = img_file.read()
+
+            # Read the mask image
+            with open(mask_path, "rb") as mask_file:
+                mask_data = mask_file.read()
+
+            response = retry_request(
+                requests.post,
+                "https://api.stability.ai/v2beta/stable-image/edit/erase",
+                headers={
+                    "Accept": "application/json",
+                    "Authorization": f"Bearer {self.api_key}",
+                },
+                files={
+                    "image": ("image.png", image_data, "image/png"),
+                    "mask": ("mask.png", mask_data, "image/png"),
+                },
+                timeout=180,
+            )
+
+            response.raise_for_status()
+            data = response.json()
+
+            output_path = (
+                f'{self.output_directory}/erase_{data["artifacts"][0]["seed"]}.png'
+            )
+            with open(output_path, "wb") as f:
+                f.write(base64.b64decode(data["artifacts"][0]["base64"]))
+
+            self._add_watermark(output_path, output_path, "logo.png")
+            self.logger.info(f"Object erased and saved at {output_path}")
+            return output_path
+
+        except requests.exceptions.HTTPError as e:
+            self.logger.error(
+                f"HTTP Error in object erase: {e.response.status_code} - {e.response.text}"
+            )
+            return None
+        except Exception as e:
+            self.logger.error(f"Error in erase_object: {e}", exc_info=True)
+            return None
+
+    def search_and_replace(
+        self,
+        image_path: str,
+        search_prompt: str,
+        replace_prompt: str,
+        output_format: str = "png",
+    ) -> Optional[str]:
+        """
+        Search and replace objects in an image using prompts.
+
+        Args:
+            image_path (str): Path to the input image.
+            search_prompt (str): Text description of what to search for.
+            replace_prompt (str): Text description of what to replace it with.
+            output_format (str): The format of the output image.
+
+        Returns:
+            Optional[str]: Path to the edited image, or None if editing fails.
+        """
+        try:
+            # Translate prompts if needed
+            search_translated, search_was_translated = translate_to_english(search_prompt)
+            replace_translated, replace_was_translated = translate_to_english(replace_prompt)
+
+            if search_was_translated:
+                self.logger.info(f"Translated search prompt from '{search_prompt}' to '{search_translated}'")
+                search_prompt = search_translated
+
+            if replace_was_translated:
+                self.logger.info(f"Translated replace prompt from '{replace_prompt}' to '{replace_translated}'")
+                replace_prompt = replace_translated
+
+            self.logger.info(f"Searching and replacing in image: {image_path}")
+
+            # Read the input image
+            with open(image_path, "rb") as img_file:
+                image_data = img_file.read()
+
+            # Try both parameter formats with intelligent fallback
+            combined_prompt = f"Replace {search_prompt} with {replace_prompt}"
+            response = None
+            last_error = None
+
+            # First attempt: combined prompt
+            try:
+                self.logger.info(f"Attempting search and replace with combined prompt: '{combined_prompt}'")
+                response = retry_request(
+                    requests.post,
+                    "https://api.stability.ai/v2beta/stable-image/edit/search-and-replace",
+                    headers={
+                        "Accept": "application/json",
+                        "Authorization": f"Bearer {self.api_key}",
+                    },
+                    files={
+                        "image": ("image.png", image_data, "image/png"),
+                        "prompt": (None, combined_prompt),
+                    },
+                    timeout=180,
+                )
+                self.logger.info("Search and replace with combined prompt succeeded")
+            except requests.exceptions.HTTPError as api_error:
+                last_error = api_error
+                error_text = str(api_error.response.text).lower()
+                self.logger.info(f"Combined prompt failed, error: {error_text}")
+
+                # If it mentions separate parameters, try that approach
+                if "search_prompt" in error_text or "replace_prompt" in error_text:
+                    try:
+                        self.logger.info("API requires separate search_prompt and replace_prompt parameters, trying that")
+                        response = retry_request(
+                            requests.post,
+                            "https://api.stability.ai/v2beta/stable-image/edit/search-and-replace",
+                            headers={
+                                "Accept": "application/json",
+                                "Authorization": f"Bearer {self.api_key}",
+                            },
+                            files={
+                                "image": ("image.png", image_data, "image/png"),
+                                "search_prompt": (None, search_prompt),
+                                "replace_prompt": (None, replace_prompt),
+                            },
+                            timeout=180,
+                        )
+                        self.logger.info("Search and replace with separate prompts succeeded")
+                    except requests.exceptions.HTTPError as second_error:
+                        last_error = second_error
+                        # If separate parameters also fail, continue to outer catch
+                        pass
+
+            # If both attempts failed, raise the last error
+            if response is None and last_error:
+                raise last_error
+
+            response.raise_for_status()
+            data = response.json()
+
+            output_path = (
+                f'{self.output_directory}/replace_{data["artifacts"][0]["seed"]}.png'
+            )
+            with open(output_path, "wb") as f:
+                f.write(base64.b64decode(data["artifacts"][0]["base64"]))
+
+            self._add_watermark(output_path, output_path, "logo.png")
+            self.logger.info(f"Search and replace completed and saved at {output_path}")
+            return output_path
+
+        except requests.exceptions.HTTPError as e:
+            self.logger.error(
+                f"HTTP Error in search and replace: {e.response.status_code} - {e.response.text}"
+            )
+            return None
+        except Exception as e:
+            self.logger.error(f"Error in search_and_replace: {e}", exc_info=True)
+            return None
+
+    def inpaint_image(
+        self,
+        image_path: str,
+        mask_path: str,
+        prompt: str,
+        output_format: str = "png",
+    ) -> Optional[str]:
+        """
+        Inpaint (fill in) masked areas of an image using a prompt.
+
+        Args:
+            image_path (str): Path to the input image.
+            mask_path (str): Path to the mask image indicating areas to inpaint.
+            prompt (str): Text description of what to generate in the masked areas.
+            output_format (str): The format of the output image.
+
+        Returns:
+            Optional[str]: Path to the edited image, or None if editing fails.
+        """
+        try:
+            # Translate prompt if needed
+            translated_prompt, was_translated = translate_to_english(prompt)
+
+            if was_translated:
+                self.logger.info(f"Translated inpaint prompt from '{prompt}' to '{translated_prompt}'")
+                prompt = translated_prompt
+
+            self.logger.info(f"Inpainting image: {image_path}")
+
+            # Read the input image
+            with open(image_path, "rb") as img_file:
+                image_data = img_file.read()
+
+            # Read the mask image
+            with open(mask_path, "rb") as mask_file:
+                mask_data = mask_file.read()
+
+            response = retry_request(
+                requests.post,
+                "https://api.stability.ai/v2beta/stable-image/edit/inpaint",
+                headers={
+                    "Accept": "application/json",
+                    "Authorization": f"Bearer {self.api_key}",
+                },
+                files={
+                    "image": ("image.png", image_data, "image/png"),
+                    "mask": ("mask.png", mask_data, "image/png"),
+                    "prompt": (None, prompt),
+                },
+                timeout=180,
+            )
+
+            response.raise_for_status()
+            data = response.json()
+
+            output_path = (
+                f'{self.output_directory}/inpaint_{data["artifacts"][0]["seed"]}.png'
+            )
+            with open(output_path, "wb") as f:
+                f.write(base64.b64decode(data["artifacts"][0]["base64"]))
+
+            self._add_watermark(output_path, output_path, "logo.png")
+            self.logger.info(f"Inpainting completed and saved at {output_path}")
+            return output_path
+
+        except requests.exceptions.HTTPError as e:
+            self.logger.error(
+                f"HTTP Error in inpainting: {e.response.status_code} - {e.response.text}"
+            )
+            return None
+        except Exception as e:
+            self.logger.error(f"Error in inpaint_image: {e}", exc_info=True)
             return None

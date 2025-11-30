@@ -223,6 +223,67 @@ class TelegramBot:
         app.add_handler(conv_handler_reimagine)
         app.add_handler(conv_handler_uncrop)
 
+        # Add conversation handlers for edit commands
+        conv_handler_erase = ConversationHandler(
+            entry_points=[CommandHandler("erase", self.routes.erase_command)],
+            states={
+                ConversationState.WAITING_FOR_ERASE_IMAGE: [
+                    MessageHandler(filters.PHOTO, self.routes.handle_erase_image),
+                    CommandHandler("skip", self.routes.handle_erase_image),
+                ],
+                ConversationState.WAITING_FOR_ERASE_MASK: [
+                    MessageHandler(filters.PHOTO, self.routes.handle_erase_mask),
+                ],
+            },
+            fallbacks=[CommandHandler("cancel", self.routes.cancel_command)],
+            conversation_timeout=STALL_TIMEOUT_DURATION,
+        )
+
+        conv_handler_search_replace = ConversationHandler(
+            entry_points=[CommandHandler("search_replace", self.routes.search_replace_command)],
+            states={
+                ConversationState.WAITING_FOR_SEARCH_REPLACE_IMAGE: [
+                    MessageHandler(filters.PHOTO, self.routes.handle_search_replace_image),
+                ],
+                ConversationState.WAITING_FOR_SEARCH_PROMPT: [
+                    MessageHandler(
+                        filters.TEXT & ~filters.COMMAND, self.routes.handle_search_prompt
+                    )
+                ],
+                ConversationState.WAITING_FOR_REPLACE_PROMPT: [
+                    MessageHandler(
+                        filters.TEXT & ~filters.COMMAND, self.routes.handle_replace_prompt
+                    )
+                ],
+            },
+            fallbacks=[CommandHandler("cancel", self.routes.cancel_command)],
+            conversation_timeout=STALL_TIMEOUT_DURATION,
+        )
+
+        conv_handler_inpaint = ConversationHandler(
+            entry_points=[CommandHandler("inpaint", self.routes.inpaint_command)],
+            states={
+                ConversationState.WAITING_FOR_INPAINT_IMAGE: [
+                    MessageHandler(filters.PHOTO, self.routes.handle_inpaint_image),
+                    CommandHandler("skip", self.routes.handle_inpaint_image),
+                ],
+                ConversationState.WAITING_FOR_INPAINT_MASK: [
+                    MessageHandler(filters.PHOTO, self.routes.handle_inpaint_mask),
+                ],
+                ConversationState.WAITING_FOR_INPAINT_PROMPT: [
+                    MessageHandler(
+                        filters.TEXT & ~filters.COMMAND, self.routes.handle_inpaint_prompt
+                    )
+                ],
+            },
+            fallbacks=[CommandHandler("cancel", self.routes.cancel_command)],
+            conversation_timeout=STALL_TIMEOUT_DURATION,
+        )
+
+        app.add_handler(conv_handler_erase)
+        app.add_handler(conv_handler_search_replace)
+        app.add_handler(conv_handler_inpaint)
+
         # Add job queue for timeout
         app.job_queue.run_repeating(
             self._check_timeout,

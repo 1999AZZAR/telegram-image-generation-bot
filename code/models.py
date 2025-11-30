@@ -24,6 +24,16 @@ class ConversationState(Enum):
     WAITING_FOR_UNCROP_PROMPT = auto()
     WAITING_FOR_UNCROP_POSITION = auto()
 
+    # Edit command states
+    WAITING_FOR_ERASE_IMAGE = auto()
+    WAITING_FOR_ERASE_MASK = auto()
+    WAITING_FOR_SEARCH_REPLACE_IMAGE = auto()
+    WAITING_FOR_SEARCH_PROMPT = auto()
+    WAITING_FOR_REPLACE_PROMPT = auto()
+    WAITING_FOR_INPAINT_IMAGE = auto()
+    WAITING_FOR_INPAINT_MASK = auto()
+    WAITING_FOR_INPAINT_PROMPT = auto()
+
 
 @dataclass
 class ImageConfig:

@@ -42,12 +42,16 @@ The application is built using Python and leverages the `python-telegram-bot` fr
 - **Intelligent Upscaling**: Enhance image resolution while preserving quality
 - **Outpainting/Uncropping**: Expand images beyond their original boundaries
 - **Control-Based Generation**: Use reference images for guided generation
+- **Object Erasing**: Remove unwanted objects from images using masks
+- **Search and Replace**: Find and replace objects or elements in images
+- **Inpainting**: Fill masked areas with AI-generated content
 
 ### Enhanced User Experience
 - **Interactive Conversations**: Step-by-step guided workflows with inline keyboards
 - **Real-time Progress Updates**: Chat action indicators during processing
 - **Timeout Management**: Automatic session cleanup and inactivity handling
 - **Error Recovery**: Robust error handling with user-friendly messages
+- **Global Language Support**: Automatic translation of prompts to English for international users
 
 ### Administrative Features
 - **Access Control**: Configurable user and admin permissions
@@ -247,6 +251,21 @@ The bot will initialize logging, connect to Telegram, and begin polling for mess
 - Intelligent content generation for extensions
 - Customizable aspect ratio changes
 
+#### `/erase`
+- Removes objects from images using mask images
+- Requires original image and black/white mask
+- White areas in mask indicate objects to erase
+
+#### `/search_replace`
+- Finds and replaces objects or elements in images
+- Uses text descriptions for search and replacement
+- Maintains image composition while swapping elements
+
+#### `/inpaint`
+- Fills masked areas with AI-generated content
+- Requires original image, mask, and generation prompt
+- White areas in mask indicate regions to fill
+
 ### Administrative Commands
 
 #### `/set_watermark`
@@ -329,6 +348,9 @@ The bot integrates with Stability AI's REST API endpoints:
 - **Image-to-Image**: `POST /v1/generation/{engine}/image-to-image`
 - **Upscaling**: `POST /v1/generation/{engine}/upscale`
 - **Outpainting**: `POST /v1/generation/{engine}/outpaint`
+- **Object Erase**: `POST /v2beta/stable-image/edit/erase`
+- **Search & Replace**: `POST /v2beta/stable-image/edit/search-and-replace`
+- **Inpainting**: `POST /v2beta/stable-image/edit/inpaint`
 
 #### Request Parameters
 - **Engine Selection**: Dynamic engine selection based on operation type

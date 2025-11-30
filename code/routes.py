@@ -92,18 +92,26 @@ class TelegramRoutes:
             return
         help_text = (
             "*AI Image Generation Bot - Command Reference*\n\n"
+            "*Image Generation:*\n"
             "*/imagine* - Generate new images from text descriptions.\n"
             "*/imaginev2* - Generate images using the enhanced model.\n"
-            "*/reimagine* - Transform existing images with new concepts.\n"
+            "*/reimagine* - Transform existing images with new concepts.\n\n"
+            "*Image Editing:*\n"
+            "*/erase* - Remove objects from images using masks.\n"
+            "*/search_replace* - Find and replace objects in images.\n"
+            "*/inpaint* - Fill in masked areas with generated content.\n\n"
+            "*Image Enhancement:*\n"
             "*/upscale* - Enhance image resolution and quality.\n"
-            "*/uncrop* - Expand images beyond their original boundaries.\n"
+            "*/uncrop* - Expand images beyond their original boundaries.\n\n"
+            "*Administration:*\n"
             "*/set_watermark* - Toggle watermark application (administrators only).\n"
             "*/cancel* - Cancel the current operation.\n\n"
             "*Optimization Tips:*\n"
             "• Provide detailed prompts for more accurate results.\n"
             "• Select appropriate aspect ratios for your use case.\n"
             "• Experiment with different styles to achieve desired results.\n"
-            "• Use clear, specific descriptions for best outpainting results.\n\n"
+            "• Use clear, specific descriptions for best editing results.\n"
+            "• Create accurate masks for erase and inpaint operations.\n\n"
             "Start any command and follow the interactive prompts for guidance."
         )
         await update.message.reply_text(help_text, parse_mode="Markdown")
@@ -981,5 +989,332 @@ class TelegramRoutes:
             self.logger.error(f"Error in handle_uncrop_prompt: {e}")
             await update.effective_message.reply_text(
                 "An error occurred during image expansion. Please try again later. If the problem persists, contact support."
+            )
+        return ConversationHandler.END
+
+    # ==================== EDIT COMMANDS ====================
+
+    @handle_errors
+    async def erase_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> ConversationState:
+        """Start the erase command conversation."""
+        await self._update_last_message_time(context)
+        if not self.auth_helper.is_user(str(update.message.from_user.id)):
+            await update.message.reply_text("Access denied. You are not authorized to use this bot.")
+            return ConversationHandler.END
+
+        await update.message.reply_text(
+            "*Erase Objects*\n\n"
+            "Send me an image that contains objects you want to erase. "
+            "Then send a mask image showing which areas to remove.\n\n"
+            "The mask should be a black and white image where:\n"
+            "• White areas = objects to erase\n"
+            "• Black areas = areas to keep\n\n"
+            "Send the image or type /cancel to abort.",
+            parse_mode="Markdown"
+        )
+        return ConversationState.WAITING_FOR_ERASE_IMAGE
+
+    @handle_errors
+    async def handle_erase_image(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> ConversationState:
+        """Handle the image input for erase command."""
+        await self._update_last_message_time(context)
+
+        if update.message.text == "/skip":
+            context.user_data["erase_image"] = None
+        else:
+            try:
+                photo = update.message.photo[-1]
+                file = await context.bot.get_file(photo.file_id)
+                file_path = f"./image/{photo.file_id}_erase.jpg"
+                await asyncio.wait_for(file.download_to_drive(file_path), timeout=60)
+                context.user_data["erase_image"] = file_path
+            except asyncio.TimeoutError:
+                await update.message.reply_text("Image download timed out. Please try again.")
+                return ConversationHandler.END
+            except Exception as e:
+                self.logger.error(f"Error during erase image download: {e}")
+                await update.message.reply_text("Failed to download image. Please try again.")
+                return ConversationHandler.END
+
+        await update.message.reply_text(
+            "Now send a mask image that shows which parts of the image to erase.\n\n"
+            "The mask should be the same size as your image and use:\n"
+            "• White pixels = areas to erase\n"
+            "• Black pixels = areas to keep\n\n"
+            "Send the mask image or type /cancel to abort."
+        )
+        return ConversationState.WAITING_FOR_ERASE_MASK
+
+    @handle_errors
+    async def handle_erase_mask(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> ConversationState:
+        """Handle the mask input and perform erase operation."""
+        await self._update_last_message_time(context)
+
+        try:
+            photo = update.message.photo[-1]
+            file = await context.bot.get_file(photo.file_id)
+            mask_path = f"./image/{photo.file_id}_mask.jpg"
+            await asyncio.wait_for(file.download_to_drive(mask_path), timeout=60)
+
+            await update.message.reply_text("Processing your erase request...")
+
+            await context.bot.send_chat_action(
+                chat_id=update.effective_chat.id, action=ChatAction.UPLOAD_PHOTO
+            )
+
+            progress_task = asyncio.create_task(self._send_progress_update(context.bot, update.effective_chat.id))
+            image_path = await asyncio.to_thread(
+                self.image_helper.erase_object,
+                context.user_data["erase_image"],
+                mask_path,
+                "png",
+            )
+            progress_task.cancel()
+
+            if not image_path:
+                raise Exception("Erase operation failed")
+
+            from io import BytesIO
+            file_bytes = await asyncio.to_thread(lambda: open(image_path, "rb").read())
+            file_obj = BytesIO(file_bytes)
+            await context.bot.send_photo(
+                chat_id=update.effective_chat.id,
+                photo=file_obj,
+                caption="Here is your edited image with objects erased.",
+            )
+            await asyncio.to_thread(os.remove, image_path)
+            await asyncio.to_thread(os.remove, context.user_data["erase_image"])
+            await asyncio.to_thread(os.remove, mask_path)
+
+        except Exception as e:
+            await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
+            self.logger.error(f"Error in handle_erase_mask: {e}")
+            await update.effective_message.reply_text(
+                "An error occurred during object erase. Please try again later. If the problem persists, contact support."
+            )
+        return ConversationHandler.END
+
+    @handle_errors
+    async def search_replace_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> ConversationState:
+        """Start the search and replace command conversation."""
+        await self._update_last_message_time(context)
+        if not self.auth_helper.is_user(str(update.message.from_user.id)):
+            await update.message.reply_text("Access denied. You are not authorized to use this bot.")
+            return ConversationHandler.END
+
+        await update.message.reply_text(
+            "*Search and Replace*\n\n"
+            "Send me an image, then describe what you want to search for and what to replace it with.\n\n"
+            "Example:\n"
+            "• Search: 'red car'\n"
+            "• Replace: 'blue motorcycle'\n\n"
+            "Send the image or type /cancel to abort.",
+            parse_mode="Markdown"
+        )
+        return ConversationState.WAITING_FOR_SEARCH_REPLACE_IMAGE
+
+    @handle_errors
+    async def handle_search_replace_image(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> ConversationState:
+        """Handle the image input for search and replace command."""
+        await self._update_last_message_time(context)
+
+        try:
+            photo = update.message.photo[-1]
+            file = await context.bot.get_file(photo.file_id)
+            file_path = f"./image/{photo.file_id}_search.jpg"
+            await asyncio.wait_for(file.download_to_drive(file_path), timeout=60)
+            context.user_data["search_replace_image"] = file_path
+        except asyncio.TimeoutError:
+            await update.message.reply_text("Image download timed out. Please try again.")
+            return ConversationHandler.END
+        except Exception as e:
+            self.logger.error(f"Error during search-replace image download: {e}")
+            await update.message.reply_text("Failed to download image. Please try again.")
+            return ConversationHandler.END
+
+        await update.message.reply_text(
+            "What object or element do you want to search for in the image?\n\n"
+            "Example: 'red car', 'person wearing hat', 'blue sky'\n\n"
+            "Type your search description or /cancel to abort."
+        )
+        return ConversationState.WAITING_FOR_SEARCH_PROMPT
+
+    @handle_errors
+    async def handle_search_prompt(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> ConversationState:
+        """Handle the search prompt input."""
+        await self._update_last_message_time(context)
+        context.user_data["search_prompt"] = update.message.text
+
+        await update.message.reply_text(
+            "What do you want to replace it with?\n\n"
+            "Example: 'blue motorcycle', 'person with sunglasses', 'sunny day'\n\n"
+            "Type your replacement description or /cancel to abort."
+        )
+        return ConversationState.WAITING_FOR_REPLACE_PROMPT
+
+    @handle_errors
+    async def handle_replace_prompt(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> ConversationState:
+        """Handle the replace prompt and perform search and replace operation."""
+        await self._update_last_message_time(context)
+        context.user_data["replace_prompt"] = update.message.text
+
+        await update.message.reply_text("Processing your search and replace request...")
+
+        try:
+            await context.bot.send_chat_action(
+                chat_id=update.effective_chat.id, action=ChatAction.UPLOAD_PHOTO
+            )
+
+            progress_task = asyncio.create_task(self._send_progress_update(context.bot, update.effective_chat.id))
+            image_path = await asyncio.to_thread(
+                self.image_helper.search_and_replace,
+                context.user_data["search_replace_image"],
+                context.user_data["search_prompt"],
+                context.user_data["replace_prompt"],
+                "png",
+            )
+            progress_task.cancel()
+
+            if not image_path:
+                raise Exception("Search and replace operation failed")
+
+            from io import BytesIO
+            file_bytes = await asyncio.to_thread(lambda: open(image_path, "rb").read())
+            file_obj = BytesIO(file_bytes)
+            await context.bot.send_photo(
+                chat_id=update.effective_chat.id,
+                photo=file_obj,
+                caption="Here is your edited image with search and replace applied.",
+            )
+            await asyncio.to_thread(os.remove, image_path)
+            await asyncio.to_thread(os.remove, context.user_data["search_replace_image"])
+
+        except Exception as e:
+            await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
+            self.logger.error(f"Error in handle_replace_prompt: {e}")
+            await update.effective_message.reply_text(
+                "An error occurred during search and replace. Please try again later. If the problem persists, contact support."
+            )
+        return ConversationHandler.END
+
+    @handle_errors
+    async def inpaint_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> ConversationState:
+        """Start the inpaint command conversation."""
+        await self._update_last_message_time(context)
+        if not self.auth_helper.is_user(str(update.message.from_user.id)):
+            await update.message.reply_text("Access denied. You are not authorized to use this bot.")
+            return ConversationHandler.END
+
+        await update.message.reply_text(
+            "*Inpaint Image*\n\n"
+            "Send me an image and a mask, then describe what you want to generate in the masked areas.\n\n"
+            "The mask should be a black and white image where:\n"
+            "• White areas = areas to fill in (inpaint)\n"
+            "• Black areas = areas to keep unchanged\n\n"
+            "Send the image or type /cancel to abort.",
+            parse_mode="Markdown"
+        )
+        return ConversationState.WAITING_FOR_INPAINT_IMAGE
+
+    @handle_errors
+    async def handle_inpaint_image(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> ConversationState:
+        """Handle the image input for inpaint command."""
+        await self._update_last_message_time(context)
+
+        if update.message.text == "/skip":
+            context.user_data["inpaint_image"] = None
+        else:
+            try:
+                photo = update.message.photo[-1]
+                file = await context.bot.get_file(photo.file_id)
+                file_path = f"./image/{photo.file_id}_inpaint.jpg"
+                await asyncio.wait_for(file.download_to_drive(file_path), timeout=60)
+                context.user_data["inpaint_image"] = file_path
+            except asyncio.TimeoutError:
+                await update.message.reply_text("Image download timed out. Please try again.")
+                return ConversationHandler.END
+            except Exception as e:
+                self.logger.error(f"Error during inpaint image download: {e}")
+                await update.message.reply_text("Failed to download image. Please try again.")
+                return ConversationHandler.END
+
+        await update.message.reply_text(
+            "Now send a mask image that shows which parts of the image to inpaint (fill in).\n\n"
+            "The mask should be the same size as your image and use:\n"
+            "• White pixels = areas to generate new content\n"
+            "• Black pixels = areas to keep unchanged\n\n"
+            "Send the mask image or type /cancel to abort."
+        )
+        return ConversationState.WAITING_FOR_INPAINT_MASK
+
+    @handle_errors
+    async def handle_inpaint_mask(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> ConversationState:
+        """Handle the mask input for inpaint command."""
+        await self._update_last_message_time(context)
+
+        try:
+            photo = update.message.photo[-1]
+            file = await context.bot.get_file(photo.file_id)
+            mask_path = f"./image/{photo.file_id}_inpaint_mask.jpg"
+            await asyncio.wait_for(file.download_to_drive(mask_path), timeout=60)
+            context.user_data["inpaint_mask"] = mask_path
+        except asyncio.TimeoutError:
+            await update.message.reply_text("Mask download timed out. Please try again.")
+            return ConversationHandler.END
+        except Exception as e:
+            self.logger.error(f"Error during inpaint mask download: {e}")
+            await update.message.reply_text("Failed to download mask. Please try again.")
+            return ConversationHandler.END
+
+        await update.message.reply_text(
+            "Describe what you want to generate in the masked areas.\n\n"
+            "Example: 'a beautiful forest', 'a modern city skyline', 'a cozy living room'\n\n"
+            "Type your description or /cancel to abort."
+        )
+        return ConversationState.WAITING_FOR_INPAINT_PROMPT
+
+    @handle_errors
+    async def handle_inpaint_prompt(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> ConversationState:
+        """Handle the prompt and perform inpaint operation."""
+        await self._update_last_message_time(context)
+        context.user_data["inpaint_prompt"] = update.message.text
+
+        await update.message.reply_text("Processing your inpaint request...")
+
+        try:
+            await context.bot.send_chat_action(
+                chat_id=update.effective_chat.id, action=ChatAction.UPLOAD_PHOTO
+            )
+
+            progress_task = asyncio.create_task(self._send_progress_update(context.bot, update.effective_chat.id))
+            image_path = await asyncio.to_thread(
+                self.image_helper.inpaint_image,
+                context.user_data["inpaint_image"],
+                context.user_data["inpaint_mask"],
+                context.user_data["inpaint_prompt"],
+                "png",
+            )
+            progress_task.cancel()
+
+            if not image_path:
+                raise Exception("Inpaint operation failed")
+
+            from io import BytesIO
+            file_bytes = await asyncio.to_thread(lambda: open(image_path, "rb").read())
+            file_obj = BytesIO(file_bytes)
+            await context.bot.send_photo(
+                chat_id=update.effective_chat.id,
+                photo=file_obj,
+                caption="Here is your inpainted image.",
+            )
+            await asyncio.to_thread(os.remove, image_path)
+            await asyncio.to_thread(os.remove, context.user_data["inpaint_image"])
+            await asyncio.to_thread(os.remove, context.user_data["inpaint_mask"])
+
+        except Exception as e:
+            await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
+            self.logger.error(f"Error in handle_inpaint_prompt: {e}")
+            await update.effective_message.reply_text(
+                "An error occurred during inpainting. Please try again later. If the problem persists, contact support."
             )
         return ConversationHandler.END
