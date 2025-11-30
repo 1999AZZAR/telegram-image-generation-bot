@@ -200,7 +200,7 @@ class ImageHelper:
                         new_width = int(width * scale_factor)
                         new_height = int(height * scale_factor)
                         self.logger.info(
-                            f"🔄 Resizing image to: {new_width}x{new_height}"
+                            f"Resizing image to: {new_width}x{new_height}"
                         )
 
                         img = img.resize((new_width, new_height), Image.LANCZOS)
@@ -354,7 +354,7 @@ class ImageHelper:
             "Accept": "application/json" if method == "creative" else "image/*",
         }
         try:
-            self.logger.info(f"🚀 Starting upscaling process for: {image_path}")
+            self.logger.info(f"Starting enhancement process for: {image_path}")
             # Step 1: Open image and check size
             with Image.open(image_path) as img:
                 width, height = img.size
@@ -364,7 +364,7 @@ class ImageHelper:
                     scale_factor = (MAX_PIXELS / total_pixels) ** 0.5
                     new_width = int(width * scale_factor)
                     new_height = int(height * scale_factor)
-                    self.logger.info(f"🔄 Resizing image to: {new_width}x{new_height}")
+                    self.logger.info(f"Resizing image to: {new_width}x{new_height}")
                     img = img.resize((new_width, new_height), Image.LANCZOS)
                     resized_path = f"{self.output_directory}/resized_temp.{output_format}"
                     img.save(resized_path)
@@ -386,11 +386,11 @@ class ImageHelper:
             if method == "creative":
                 # Handle creative upscaling (asynchronous workflow)
                 if response.status_code != 200:
-                    self.logger.error(f"❌ Error in upscaling request: {response.text}")
+                    self.logger.error(f"Error in enhancement request: {response.text}")
                     return None
                 generation_id = response.json().get("id")
                 if not generation_id:
-                    self.logger.error("❌ No generation ID found in the response.")
+                    self.logger.error("No generation ID found in the response.")
                     return None
                 self.logger.info(f"🔍 Generation ID: {generation_id}")
                 # Poll the results endpoint
@@ -399,12 +399,12 @@ class ImageHelper:
                 import time as _time
                 poll_attempts = 0
                 while True:
-                    self.logger.info("🔄 Polling for results...")
+                    self.logger.info("Polling for results...")
                     poll_attempts += 1
                     poll_response = retry_request(requests.get, results_url, headers=headers, timeout=180)
                     self.logger.info(f"Poll response: {poll_response.status_code} {poll_response.text}")
                     if poll_response.status_code == 202:
-                        self.logger.info("⏳ Generation in progress, retrying in 10 seconds...")
+                        self.logger.info("Generation in progress, retrying in 10 seconds...")
                         _time.sleep(10)
                     elif poll_response.status_code == 200:
                         result = poll_response.json()
@@ -425,7 +425,7 @@ class ImageHelper:
                                 self.logger.info(f"📥 Downloading image from: {image_url}")
                                 image_response = retry_request(requests.get, image_url, timeout=180)
                                 if image_response.status_code != 200:
-                                    self.logger.error(f"❌ Error downloading image: {image_response.text}")
+                                    self.logger.error(f"Error downloading image: {image_response.text}")
                                     return None
                                 upscaled_path = f"{self.output_directory}/upscaled_{method}.{output_format}"
                                 with open(upscaled_path, "wb") as f:
@@ -467,7 +467,7 @@ class ImageHelper:
                                             img = img.convert("RGB") if output_format.lower() in ["jpeg", "jpg"] else img
                                             img.save(upscaled_path, format=output_format.upper())
                                         except Exception as pil_disk_err:
-                                            self.logger.error(f"❌ Fallback also failed: {pil_disk_err}", exc_info=True)
+                                            self.logger.error(f"Fallback also failed: {pil_disk_err}", exc_info=True)
                                             # Save raw bytes for manual inspection
                                             raw_path = f"{self.output_directory}/upscaled_{method}.raw"
                                             with open(raw_path, "wb") as rawf:
@@ -479,7 +479,7 @@ class ImageHelper:
                                     self.logger.info(f"✅ Upscaled image (base64) saved as: {upscaled_path}")
                                     return upscaled_path
                                 except Exception as e:
-                                    self.logger.error(f"❌ Exception decoding/saving base64 image: {e}", exc_info=True)
+                                    self.logger.error(f"Exception decoding/saving base64 image: {e}", exc_info=True)
                                     return None
                             # Fallback: check for artifacts with base64
                             artifacts = result.get("artifacts")
@@ -513,7 +513,7 @@ class ImageHelper:
                                             img = img.convert("RGB") if output_format.lower() in ["jpeg", "jpg"] else img
                                             img.save(upscaled_path, format=output_format.upper())
                                         except Exception as pil_disk_err:
-                                            self.logger.error(f"❌ Fallback also failed: {pil_disk_err}", exc_info=True)
+                                            self.logger.error(f"Fallback also failed: {pil_disk_err}", exc_info=True)
                                             raw_path = f"{self.output_directory}/upscaled_{method}.raw"
                                             with open(raw_path, "wb") as rawf:
                                                 rawf.write(img_bytes)
@@ -524,26 +524,26 @@ class ImageHelper:
                                     self.logger.info(f"✅ Upscaled image (artifacts base64) saved as: {upscaled_path}")
                                     return upscaled_path
                                 except Exception as e:
-                                    self.logger.error(f"❌ Exception decoding/saving artifacts base64 image: {e}", exc_info=True)
+                                    self.logger.error(f"Exception decoding/saving artifacts base64 image: {e}", exc_info=True)
                                     return None
                             # If no image found, log and return None
-                            self.logger.error(f"❌ No image URL or base64 found in the response. Full poll response: {result}")
+                            self.logger.error(f"No image URL or base64 found in the response. Full poll response: {result}")
                             return None
                         else:
                             # Improved error logging for failed jobs
-                            self.logger.error(f"❌ Generation failed. Full poll response: {result}")
+                            self.logger.error(f"Generation failed. Full poll response: {result}")
                             if 'error' in result:
                                 self.logger.error(f"API error: {result['error']}")
                             if 'message' in result:
                                 self.logger.error(f"API message: {result['message']}")
                             return None
                     else:
-                        self.logger.error(f"❌ Error in results request: {poll_response.text}")
+                        self.logger.error(f"Error in results request: {poll_response.text}")
                         return None
             else:
                 # Handle conservative and fast upscaling (synchronous workflow)
                 if response.status_code != 200:
-                    self.logger.error(f"❌ Error in upscaling request: {response.text}")
+                    self.logger.error(f"Error in enhancement request: {response.text}")
                     return None
                 upscaled_path = f"{self.output_directory}/upscaled_{method}.{output_format}"
                 with open(upscaled_path, "wb") as f:
@@ -555,10 +555,10 @@ class ImageHelper:
             self.logger.error("Upscaling timed out after multiple attempts.")
             return None
         except requests.exceptions.HTTPError as e:
-            self.logger.error(f"❌ HTTP Error in upscaling: {e.response.status_code} - {e.response.text}")
+            self.logger.error(f"HTTP Error in enhancement: {e.response.status_code} - {e.response.text}")
             return None
         except Exception as e:
-            self.logger.error(f"❌ General Error in upscaling: {e}")
+            self.logger.error(f"General Error in enhancement: {e}")
             return None
 
     def reimagine_image(self, params: ReimagineParams) -> Optional[str]:
@@ -607,15 +607,15 @@ class ImageHelper:
             return output_path
 
         except requests.exceptions.Timeout:
-            self.logger.error("⏳ Reimagine request timed out.")
+            self.logger.error("Reimagine request timed out.")
             return None
         except requests.exceptions.HTTPError as e:
             self.logger.error(
-                f"❌ HTTP Error in reimagining: {e.response.status_code} - {e.response.text}"
+                f"HTTP Error in reimagining: {e.response.status_code} - {e.response.text}"
             )
             return None
         except Exception as e:
-            self.logger.error(f"❌ General Error in reimagine_image: {e}")
+            self.logger.error(f"General Error in reimagine_image: {e}")
             return None
 
     def uncrop_image(self, params: UnCropParams) -> Optional[str]:

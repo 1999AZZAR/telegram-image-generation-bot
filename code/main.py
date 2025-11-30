@@ -242,7 +242,7 @@ class TelegramBot:
                 if elapsed_time > STALL_TIMEOUT_DURATION:
                     await context.bot.send_message(
                         chat_id=chat_id,
-                        text="⏳ Your session has timed out due to inactivity. Please start over.",
+                        text="Your session has timed out due to inactivity. Please start over.",
                     )
                     user_data.clear()  # Clear user data to reset the conversation
                     continue
@@ -254,7 +254,7 @@ class TelegramBot:
                 ):
                     await context.bot.send_message(
                         chat_id=chat_id,
-                        text="⏳ You took too long to respond. Please restart the current step.",
+                        text="You took too long to respond. Please restart the current step.",
                     )
                     # Reset the last message time to give the user another chance
                     user_data["last_message_time"] = time.time()

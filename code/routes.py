@@ -38,7 +38,7 @@ def handle_errors(func: Callable[..., Awaitable[Any]]) -> Callable[..., Awaitabl
             return await func(self, update, context, *args, **kwargs)
         except Exception as e:
             self.logger.error(f"Error in {func.__name__}: {e}", exc_info=True)
-            await update.effective_message.reply_text("❌ An error occurred. Please try again later.")
+            await update.effective_message.reply_text("An error occurred. Please try again later.")
             context.user_data.clear()
             return ConversationHandler.END
     return wrapper
@@ -66,21 +66,21 @@ class TelegramRoutes:
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await self._update_last_message_time(context)
         if not self.auth_helper.is_user(str(update.message.from_user.id)):
-            await update.message.reply_text("🔒 Sorry, you are not authorized to use this bot.")
+            await update.message.reply_text("Access denied. You are not authorized to use this bot.")
             return
         welcome_message = (
-            f"🌟 Welcome, {update.effective_user.first_name}!\n\n"
-            "I'm your AI-powered image assistant. Here's what I can do for you:\n\n"
-            "🎨 *Generate Images*: Use /imagine to create AI-generated artwork from text prompts.\n"
-            "🖼️ *Imagine V2*: Use /imagine_v2 to generate images with new image generation model.\n"
-            "🔄 *Reimagine Images*: Use /reimagine to transform an existing image based on a new concept.\n"
-            "📈 *Upscale Images*: Use /upscale to enhance image quality and resolution.\n"
-            "🖼️ *Uncrop/Outpaint*: Use /uncrop to expand images beyond their original borders.\n\n"
-            "🚀 *How to Use Me:*\n"
-            "1️⃣ Choose a command (/imagine, /imaginev2, /reimagine, /upscale, or /uncrop).\n"
-            "2️⃣ Follow the steps to provide the necessary details.\n"
-            "3️⃣ Wait for me to generate your result!\n\n"
-            "Use /help for more details about each feature."
+            f"Welcome, {update.effective_user.first_name}!\n\n"
+            "I am an AI-powered image generation assistant. Here are the available features:\n\n"
+            "*Generate Images*: Use /imagine to create AI-generated artwork from text descriptions.\n"
+            "*Imagine V2*: Use /imaginev2 to generate images with the enhanced generation model.\n"
+            "*Reimagine Images*: Use /reimagine to transform existing images with new concepts.\n"
+            "*Upscale Images*: Use /upscale to enhance image resolution and quality.\n"
+            "*Uncrop/Outpaint*: Use /uncrop to expand images beyond their original boundaries.\n\n"
+            "*Getting Started:*\n"
+            "1. Choose a command (/imagine, /imaginev2, /reimagine, /upscale, or /uncrop).\n"
+            "2. Follow the prompts to provide the required information.\n"
+            "3. Wait for the system to process and deliver your result.\n\n"
+            "Use /help for detailed information about each feature."
         )
         await update.message.reply_text(welcome_message, parse_mode="Markdown")
 
@@ -88,23 +88,23 @@ class TelegramRoutes:
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await self._update_last_message_time(context)
         if not self.auth_helper.is_user(str(update.message.from_user.id)):
-            await update.message.reply_text("🔒 Sorry, you are not authorized to use this bot.")
+            await update.message.reply_text("Access denied. You are not authorized to use this bot.")
             return
         help_text = (
-            "🤖 *AI Image Assistant - Commands Guide*\n\n"
-            "🎨 */imagine* - Generate a new AI image from a text description.\n"
-            "🖼️ */imaginev2* - Generate images with new image generation model.\n"
-            "🔄 */reimagine* - Modify an existing image based on a new concept.\n"
-            "📈 */upscale* - Enhance the resolution and quality of an image.\n"
-            "🖼️ */uncrop* - Expand images beyond their original borders (outpainting).\n"
-            "⚙️ */set_watermark* - Toggle watermarking (Admins only).\n"
-            "❌ */cancel* - Cancel the current operation.\n\n"
-            "✨ *Tips for Best Results:*\n"
-            "• Be detailed in your prompts for more accurate results.\n"
-            "• For /uncrop, choose aspect ratios that make sense for your image.\n"
-            "• Try different styles and sizes for better results.\n"
-            "• Use simple, clear descriptions for best uncrop/outpaint results.\n\n"
-            "Need help? Just start a command and follow the instructions! 🚀"
+            "*AI Image Generation Bot - Command Reference*\n\n"
+            "*/imagine* - Generate new images from text descriptions.\n"
+            "*/imaginev2* - Generate images using the enhanced model.\n"
+            "*/reimagine* - Transform existing images with new concepts.\n"
+            "*/upscale* - Enhance image resolution and quality.\n"
+            "*/uncrop* - Expand images beyond their original boundaries.\n"
+            "*/set_watermark* - Toggle watermark application (administrators only).\n"
+            "*/cancel* - Cancel the current operation.\n\n"
+            "*Optimization Tips:*\n"
+            "• Provide detailed prompts for more accurate results.\n"
+            "• Select appropriate aspect ratios for your use case.\n"
+            "• Experiment with different styles to achieve desired results.\n"
+            "• Use clear, specific descriptions for best outpainting results.\n\n"
+            "Start any command and follow the interactive prompts for guidance."
         )
         await update.message.reply_text(help_text, parse_mode="Markdown")
 
@@ -113,19 +113,19 @@ class TelegramRoutes:
         await self._update_last_message_time(context)
         user_id = str(update.message.from_user.id)
         if not self.auth_helper.is_admin(user_id):
-            await update.message.reply_text("❌ You are not authorized to change this setting.")
+            await update.message.reply_text("Access denied. You are not authorized to modify this setting.")
             return
-        status = "ON ✅" if self.image_helper.watermark_enabled else "OFF ❌"
+        status = "Enabled" if self.image_helper.watermark_enabled else "Disabled"
         keyboard = [
             [
-                InlineKeyboardButton("Enable ✅", callback_data="set_watermark_on"),
-                InlineKeyboardButton("Disable ❌", callback_data="set_watermark_off"),
+                InlineKeyboardButton("Enable", callback_data="set_watermark_on"),
+                InlineKeyboardButton("Disable", callback_data="set_watermark_off"),
             ]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(
-            f"⚙️ *Watermark Status:* {status}\n\n"
-            "🔽 Choose an option below to update:",
+            f"*Watermark Status:* {status}\n\n"
+            "Select an option below to modify the setting:",
             reply_markup=reply_markup,
             parse_mode="Markdown",
         )
@@ -136,15 +136,15 @@ class TelegramRoutes:
         query = update.callback_query
         await query.answer()
         if not self.auth_helper.is_admin(str(query.from_user.id)):
-            await query.edit_message_text("❌ You are not authorized to change this setting.")
+            await query.edit_message_text("Access denied. You are not authorized to modify this setting.")
             return
         if query.data == "set_watermark_on":
             self.image_helper.set_watermark_status(True)
-            new_status = "ON ✅"
+            new_status = "Enabled"
         else:
             self.image_helper.set_watermark_status(False)
-            new_status = "OFF ❌"
-        await query.edit_message_text(f"⚙️ *Watermark Status Updated:* {new_status}", parse_mode="Markdown")
+            new_status = "Disabled"
+        await query.edit_message_text(f"*Watermark Status Updated:* {new_status}", parse_mode="Markdown")
 
     @handle_errors
     async def image_command(
@@ -154,12 +154,12 @@ class TelegramRoutes:
         context.user_data["current_state"] = ConversationState.WAITING_FOR_PROMPT  # Track the current state
         if not self.auth_helper.is_user(str(update.message.from_user.id)):
             await update.message.reply_text(
-                "🔒 Sorry, you are not authorized to use this bot."
+                "Access denied. You are not authorized to use this bot."
             )
             return ConversationHandler.END
 
         await update.message.reply_text(
-            "🎨 Please provide a detailed prompt for your image.\n"
+            "Please provide a detailed description for your image.\n"
             "Type /cancel to cancel the operation."
         )
         return ConversationState.WAITING_FOR_PROMPT
@@ -180,7 +180,7 @@ class TelegramRoutes:
         ]
         reply_markup = InlineKeyboardMarkup(inline_keyboard)
         await update.message.reply_text(
-            "🖼️ Choose the generation type:", reply_markup=reply_markup
+            "Select the generation method:", reply_markup=reply_markup
         )
 
         return ConversationState.WAITING_FOR_CONTROL_TYPE
@@ -197,7 +197,7 @@ class TelegramRoutes:
 
         if choice == "Control-Based":
             await update.callback_query.answer()
-            await update.callback_query.edit_message_text("📤 Please upload the reference image.")
+            await update.callback_query.edit_message_text("Please upload the reference image.")
             return ConversationState.WAITING_FOR_IMAGE
         else:
             # Proceed with normal image size selection
@@ -209,7 +209,7 @@ class TelegramRoutes:
             reply_markup = InlineKeyboardMarkup(inline_keyboard)
             await update.callback_query.answer()
             await update.callback_query.edit_message_text(
-                "📐 Select image size:", reply_markup=reply_markup
+                "Select image dimensions:", reply_markup=reply_markup
             )
             return ConversationState.WAITING_FOR_SIZE
 
@@ -230,7 +230,7 @@ class TelegramRoutes:
         ]
         reply_markup = InlineKeyboardMarkup(inline_keyboard)
         await update.callback_query.answer()
-        await update.callback_query.edit_message_text("🎭 Select image style:", reply_markup=reply_markup)
+        await update.callback_query.edit_message_text("Select artistic style:", reply_markup=reply_markup)
         return ConversationState.WAITING_FOR_STYLE
 
     @validate_state(ConversationState.WAITING_FOR_STYLE)
@@ -246,10 +246,10 @@ class TelegramRoutes:
         await update.callback_query.answer()
         if generation_type == "Upscale" and context.user_data.get("upscale_method") == "creative":
             await update.callback_query.edit_message_text(
-                "📷 Please send the image you want to upscale."
+                "Please upload the image you want to enhance."
             )
             return ConversationState.WAITING_FOR_IMAGE
-        await update.callback_query.edit_message_text("🎨 Generating your image...")
+        await update.callback_query.edit_message_text("Generating your image...")
         prompt = context.user_data.get("prompt", "")
         size = context.user_data.get("size", "square")
         control_image = context.user_data.get("control_image", None)
@@ -285,14 +285,14 @@ class TelegramRoutes:
                     prompt=prompt, control_image=control_image, style=style
                 )
                 send_func = bot.send_photo
-                caption = "🎭 Here's your reimagined image!"
+                caption = "Here is your reimagined image."
                 image_path = await asyncio.to_thread(self.image_helper.reimagine_image, params)
             else:
                 params = GenerationParams(
                     prompt=prompt, style=style, size=size, control_image=control_image
                 )
                 send_func = bot.send_photo
-                caption = "🎨 Here's your generated image!"
+                caption = "Here is your generated image."
                 image_path = await asyncio.to_thread(self.image_helper.generate_image, params)
             progress_task.cancel()
             if not image_path:
@@ -307,12 +307,12 @@ class TelegramRoutes:
             self.logger.error(f"Error in background image processing: {e}")
             await bot.send_message(
                 chat_id=chat_id,
-                text="❌ Sorry, there was an error processing your image. Please try again later. If the problem persists, contact support.",
+                text="An error occurred while processing your image. Please try again later. If the problem persists, contact support.",
             )
 
     async def _send_progress_update(self, bot: Any, chat_id: int) -> None:
         await asyncio.sleep(10)
-        await bot.send_message(chat_id=chat_id, text="⏳ Still working on your image... Please wait.")
+        await bot.send_message(chat_id=chat_id, text="Processing is still in progress. Please wait.")
 
     @handle_errors
     async def upscale_command(
@@ -322,7 +322,7 @@ class TelegramRoutes:
         """Handles /upscale command and asks user to select the upscaling method."""
         if not self.auth_helper.is_user(str(update.message.from_user.id)):
             await update.message.reply_text(
-                "🔒 Sorry, you are not authorized to use this bot."
+                "Access denied. You are not authorized to use this bot."
             )
             return ConversationHandler.END
 
@@ -336,7 +336,7 @@ class TelegramRoutes:
         ]
         reply_markup = InlineKeyboardMarkup(inline_keyboard)
         await update.message.reply_text(
-            "🖼️ Choose the upscaling method (Conservative, Creative, Fast):",
+            "Select the enhancement method (Conservative, Creative, Fast):",
             reply_markup=reply_markup,
         )
 
@@ -359,14 +359,14 @@ class TelegramRoutes:
             ]
             reply_markup = InlineKeyboardMarkup(inline_keyboard)
             await update.message.reply_text(
-                "🎭 Select a style preset for creative upscaling:",
+                "Select a style for creative enhancement:",
                 reply_markup=reply_markup,
             )
             return ConversationState.WAITING_FOR_STYLE
         else:
             # For "conservative" mode, proceed to ask for the image
             await update.message.reply_text(
-                "📷 Please send the image you want to upscale."
+                "Please upload the image you want to enhance."
             )
             return ConversationState.WAITING_FOR_IMAGE
 
@@ -381,7 +381,7 @@ class TelegramRoutes:
         if method not in valid_methods:
             await update.callback_query.answer()
             await update.callback_query.edit_message_text(
-                "❌ Invalid method. Please choose 'Conservative', 'Creative', or 'Fast'."
+                "Invalid method selected. Please choose 'Conservative', 'Creative', or 'Fast'."
             )
             context.user_data.clear()
             return ConversationHandler.END
@@ -390,13 +390,13 @@ class TelegramRoutes:
 
         if method in {"conservative", "creative"}:
             await update.callback_query.answer()
-            await update.callback_query.edit_message_text("✏️ Please provide a prompt for upscaling.")
+            await update.callback_query.edit_message_text("Please provide a description for the enhancement.")
             return ConversationState.WAITING_FOR_UPSCALE_PROMPT
         else:
             # For "fast" mode, proceed to ask for the image
             await update.callback_query.answer()
             await update.callback_query.edit_message_text(
-                "📷 Please send the image you want to upscale."
+                "Please upload the image you want to enhance."
             )
             return ConversationState.WAITING_FOR_IMAGE
 
@@ -422,9 +422,9 @@ class TelegramRoutes:
             generation_type = context.user_data.get("generation_type")
 
             if generation_type is None:
-                self.logger.error("⚠️ Missing generation_type in context.")
+                self.logger.error("Missing generation_type in context.")
                 await update.message.reply_text(
-                    "❌ Something went wrong. Please restart the command."
+                    "An error occurred. Please restart the command."
                 )
                 return ConversationHandler.END
 
@@ -439,7 +439,7 @@ class TelegramRoutes:
                 ]
                 reply_markup = InlineKeyboardMarkup(inline_keyboard)
                 await update.message.reply_text(
-                    "🎭 Select a style for reimagining:", reply_markup=reply_markup
+                    "Select a style for transformation:", reply_markup=reply_markup
                 )
                 return ConversationState.WAITING_FOR_STYLE
 
@@ -452,7 +452,7 @@ class TelegramRoutes:
                 ]
                 reply_markup = InlineKeyboardMarkup(inline_keyboard)
                 await update.message.reply_text(
-                    "📐 Select image size:", reply_markup=reply_markup
+                    "Select image dimensions:", reply_markup=reply_markup
                 )
                 return ConversationState.WAITING_FOR_SIZE
 
@@ -469,24 +469,24 @@ class TelegramRoutes:
                 return ConversationState.WAITING_FOR_FORMAT
 
             else:
-                self.logger.error(f"⚠️ Unknown generation_type: {generation_type}")
+                self.logger.error(f"Unknown generation_type: {generation_type}")
                 await update.message.reply_text(
-                    "❌ Something went wrong. Please restart the command."
+                    "An error occurred. Please restart the command."
                 )
                 if "current_state" in context.user_data:
                     del context.user_data["current_state"]  # Clear the current state
                 return ConversationHandler.END
 
         except asyncio.TimeoutError:
-            self.logger.error("⏳ Image download timed out!")
+            self.logger.error("Image download timed out!")
             await update.message.reply_text(
-                "❌ Image download timed out. Please try again."
+                "Image download timed out. Please try again."
             )
             return ConversationHandler.END
         except Exception as e:
-            self.logger.error(f"❌ Error during image download: {e}")
+            self.logger.error(f"Error during image download: {e}")
             await update.message.reply_text(
-                "❌ Failed to download image. Please try again."
+                "Failed to download image. Please try again."
             )
             if "current_state" in context.user_data:
                 del context.user_data["current_state"]  # Clear the current state
@@ -501,12 +501,12 @@ class TelegramRoutes:
         if upscale_method == "creative":
             await update.callback_query.answer()
             await update.callback_query.edit_message_text(
-                "🔄 Upscaling your image using the creative method... This may take a few moments. Please wait."
+                "Enhancing your image using the creative method... This may take a few moments. Please wait."
             )
         else:
             await update.callback_query.answer()
             await update.callback_query.edit_message_text(
-                "🔄 Upscaling your image..."
+                "Enhancing your image..."
             )
         try:
             await context.bot.send_chat_action(
@@ -544,14 +544,14 @@ class TelegramRoutes:
                 chat_id=update.effective_chat.id,
                 document=file_obj,
                 filename=f"upscaled.{output_format}",
-                caption=f"🖼️ Here's your upscaled image (using {upscale_method} method).",
+                caption=f"Here is your enhanced image (using {upscale_method} method).",
             )
             await asyncio.to_thread(os.remove, upscaled_image_path)
         except requests.exceptions.Timeout:
             await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
             self.logger.error("Upscaling timed out after multiple attempts.")
             await update.effective_message.reply_text(
-                "⏳ The upscaling operation timed out. This can happen if the server is busy or the image is too large. Please try again later or use a smaller image."
+                "The enhancement operation timed out. This can happen if the server is busy or the image is too large. Please try again later or use a smaller image."
             )
             context.user_data.clear()
             return ConversationHandler.END
@@ -559,7 +559,7 @@ class TelegramRoutes:
             await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
             self.logger.error(f"Error in handle_format: {e}")
             await update.effective_message.reply_text(
-                "❌ Sorry, there was an error upscaling your image. Please try again later. If the problem persists, contact support."
+                "An error occurred while enhancing your image. Please try again later. If the problem persists, contact support."
             )
             context.user_data.clear()
             return ConversationHandler.END
@@ -584,7 +584,7 @@ class TelegramRoutes:
         """Handles the /reimagine command."""
         if not self.auth_helper.is_user(str(update.message.from_user.id)):
             await update.message.reply_text(
-                "🔒 Sorry, you are not authorized to use this bot."
+                "Access denied. You are not authorized to use this bot."
             )
             return ConversationHandler.END
 
@@ -598,7 +598,7 @@ class TelegramRoutes:
         ]
         reply_markup = InlineKeyboardMarkup(inline_keyboard)
         await update.message.reply_text(
-            "🖼️ Choose the method (Image or Sketch):", reply_markup=reply_markup
+            "Select the transformation method (Image or Sketch):", reply_markup=reply_markup
         )
 
         return ConversationState.WAITING_FOR_METHOD
@@ -611,7 +611,7 @@ class TelegramRoutes:
         """Stores the selected style and asks for a reimagine description."""
         context.user_data["style"] = update.callback_query.data
         await update.callback_query.answer()
-        await update.callback_query.edit_message_text("✏️ Now provide a description for reimagining.")
+        await update.callback_query.edit_message_text("Please provide a description for the transformation.")
         return ConversationState.WAITING_FOR_PROMPT
 
     @handle_errors
@@ -624,13 +624,13 @@ class TelegramRoutes:
         if method not in ["image", "sketch"]:
             await update.callback_query.answer()
             await update.callback_query.edit_message_text(
-                "❌ Invalid method. Please choose 'Image' or 'Sketch'."
+                "Invalid method selected. Please choose 'Image' or 'Sketch'."
             )
             return ConversationState.WAITING_FOR_METHOD
 
         context.user_data["method"] = method
         await update.callback_query.answer()
-        await update.callback_query.edit_message_text("📤 Please upload the image or sketch.")
+        await update.callback_query.edit_message_text("Please upload the image or sketch.")
         return ConversationState.WAITING_FOR_IMAGE
 
     @handle_errors
@@ -640,7 +640,7 @@ class TelegramRoutes:
         await self._update_last_message_time(context)
         """Handles reimagine prompt input and starts image transformation."""
         await update.message.reply_text(
-            "✨ Reimagining your image..."
+            "Transforming your image..."
         )
 
         try:
@@ -666,7 +666,7 @@ class TelegramRoutes:
                 await context.bot.send_photo(
                     chat_id=update.effective_chat.id,
                     photo=photo,
-                    caption="🎭 Here's your reimagined image!",
+                    caption="Here is your transformed image.",
                 )
 
             await asyncio.to_thread(os.remove, image_path)
@@ -674,7 +674,7 @@ class TelegramRoutes:
         except Exception as e:
             self.logger.error(f"Error in handle_reimagine_prompt: {e}")
             await update.effective_message.reply_text(
-                "❌ Sorry, there was an error reimagining your image. Please try again."
+                "An error occurred while transforming your image. Please try again."
             )
             if "current_state" in context.user_data:
                 del context.user_data["current_state"]  # Clear the current state
@@ -689,12 +689,12 @@ class TelegramRoutes:
         """Handles the /imagine_v2 command to start the new image generation flow."""
         if not self.auth_helper.is_admin(str(update.message.from_user.id)):
             await update.message.reply_text(
-                "🔒 Sorry, you are not authorized to use this bot."
+                "Access denied. You are not authorized to use this bot."
             )
             return ConversationHandler.END
 
         await update.message.reply_text(
-            "🎨 Please provide a detailed prompt for your image.\n"
+            "Please provide a detailed description for your image.\n"
             "Type /cancel to cancel the operation."
         )
         return ConversationState.WAITING_FOR_PROMPT_V2
@@ -720,7 +720,7 @@ class TelegramRoutes:
         reply_markup = InlineKeyboardMarkup(inline_keyboard)
 
         await update.message.reply_text(
-            "📐 Please select an aspect ratio from the options below:",
+            "Please select an aspect ratio from the options below:",
             reply_markup=reply_markup,
         )
         return ConversationState.WAITING_FOR_ASPECT_RATIO_V2
@@ -736,7 +736,7 @@ class TelegramRoutes:
 
         await update.callback_query.answer()
         await update.callback_query.edit_message_text(
-            "📤 (Optional) Upload an image to use as the starting point, or type /skip to continue without one."
+            "(Optional) Upload an image to use as the starting point, or type /skip to continue without one."
         )
         return ConversationState.WAITING_FOR_IMAGE_V2
 
@@ -756,17 +756,17 @@ class TelegramRoutes:
                 context.user_data["image"] = file_path
             except asyncio.TimeoutError:
                 await update.message.reply_text(
-                    "❌ Image download timed out. Please try again."
+                    "Image download timed out. Please try again."
                 )
                 return ConversationHandler.END
             except Exception as e:
                 self.logger.error(f"Error during image download: {e}")
                 await update.message.reply_text(
-                    "❌ Failed to download image. Please try again."
+                    "Failed to download image. Please try again."
                 )
                 return ConversationHandler.END
         await update.message.reply_text(
-            "🖼️ Generating your image..."
+            "Generating your image..."
         )
         try:
             await context.bot.send_chat_action(
@@ -792,14 +792,14 @@ class TelegramRoutes:
             await context.bot.send_photo(
                 chat_id=update.effective_chat.id,
                 photo=file_obj,
-                caption="🎨 Here's your generated image!",
+                caption="Here is your generated image.",
             )
             await asyncio.to_thread(os.remove, image_path)
         except Exception as e:
             await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
             self.logger.error(f"Error in handle_image_v2: {e}")
             await update.effective_message.reply_text(
-                "❌ Sorry, there was an error generating your image. Please try again later. If the problem persists, contact support."
+                "An error occurred while generating your image. Please try again later. If the problem persists, contact support."
             )
         return ConversationHandler.END
 
@@ -811,12 +811,12 @@ class TelegramRoutes:
         """Handles the /uncrop command to start the outpainting process."""
         if not self.auth_helper.is_admin(str(update.message.from_user.id)):
             await update.message.reply_text(
-                "🔒 Sorry, you are not authorized to use this bot."
+                "Access denied. You are not authorized to use this bot."
             )
             return ConversationHandler.END
 
         await update.message.reply_text(
-            "🖼️ Please upload the image you want to uncrop (outpaint).\n"
+            "Please upload the image you want to expand (outpaint).\n"
             "Type /cancel to cancel the operation."
         )
         return ConversationState.WAITING_FOR_UNCROP_IMAGE
@@ -848,14 +848,14 @@ class TelegramRoutes:
             reply_markup = InlineKeyboardMarkup(inline_keyboard)
 
             await update.message.reply_text(
-                "📐 What aspect ratio would you like for the outpainted image?",
+                "Select the aspect ratio for the expanded image:",
                 reply_markup=reply_markup,
             )
             return ConversationState.WAITING_FOR_UNCROP_ASPECT_RATIO
         except Exception as e:
             self.logger.error(f"Error in handle_uncrop_image: {e}")
             await update.message.reply_text(
-                "❌ Failed to process image. Please try again."
+                "Failed to process image. Please try again."
             )
             return ConversationHandler.END
 
@@ -869,7 +869,7 @@ class TelegramRoutes:
         if ":" not in aspect_ratio or len(aspect_ratio.split(":")) != 2:
             await update.callback_query.answer()
             await update.callback_query.edit_message_text(
-                "❌ Invalid aspect ratio format. Please use format like '16:9' or select from the options."
+                "Invalid aspect ratio format. Please use format like '16:9' or select from the options."
             )
             return ConversationState.WAITING_FOR_UNCROP_ASPECT_RATIO
 
@@ -890,7 +890,7 @@ class TelegramRoutes:
 
         await update.callback_query.answer()
         await update.callback_query.edit_message_text(
-            "📍 Select where to position the original image in the outpainted result (or skip to use auto positioning):",
+            "Select where to position the original image in the expanded result (or skip to use automatic positioning):",
             reply_markup=reply_markup,
         )
         return ConversationState.WAITING_FOR_UNCROP_POSITION
@@ -922,7 +922,7 @@ class TelegramRoutes:
             if position not in valid_positions:
                 await update.callback_query.answer()
                 await update.callback_query.edit_message_text(
-                    "❌ Invalid position. Please select from the options."
+                    "Invalid position selected. Please choose from the available options."
                 )
                 return ConversationState.WAITING_FOR_UNCROP_POSITION
 
@@ -934,7 +934,7 @@ class TelegramRoutes:
 
         await update.callback_query.answer()
         await update.callback_query.edit_message_text(
-            "✏️ (Optional) Provide a prompt to guide the outpainting, or type /skip:"
+            "(Optional) Provide a description to guide the expansion, or type /skip:"
         )
         return ConversationState.WAITING_FOR_UNCROP_PROMPT
 
@@ -946,8 +946,8 @@ class TelegramRoutes:
         if update.message.text != "/skip":
             context.user_data["uncrop_prompt"] = update.message.text
         await update.message.reply_text(
-            "🔄 Performing outpainting (uncrop)... This may take a moment.\n"
-            "⚠️ Note: Large images will be automatically resized to fit API limits."
+            "Expanding image boundaries... This may take a moment.\n"
+            "Note: Large images will be automatically resized to meet API requirements."
         )
         try:
             await context.bot.send_chat_action(
@@ -973,13 +973,13 @@ class TelegramRoutes:
             await context.bot.send_photo(
                 chat_id=update.effective_chat.id,
                 photo=file_obj,
-                caption="🖼️ Here's your outpainted (uncropped) image!",
+                caption="Here is your expanded image.",
             )
             await asyncio.to_thread(os.remove, image_path)
         except Exception as e:
             await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
             self.logger.error(f"Error in handle_uncrop_prompt: {e}")
             await update.effective_message.reply_text(
-                "❌ Sorry, there was an error during outpainting. Please try again later. If the problem persists, contact support."
+                "An error occurred during image expansion. Please try again later. If the problem persists, contact support."
             )
         return ConversationHandler.END
