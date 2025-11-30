@@ -171,11 +171,28 @@ class ImageHelper:
             response.raise_for_status()
             data = response.json()
 
-            output_path = (
-                f'{self.output_directory}/txt2img_{data["artifacts"][0]["seed"]}.png'
-            )
-            with open(output_path, "wb") as f:
-                f.write(base64.b64decode(data["artifacts"][0]["base64"]))
+            # Check if the response contains errors even with 200 status
+            if "errors" in data:
+                raise Exception(f"API Error: {data['errors']}")
+
+            # Handle different response formats
+            if "artifacts" in data and len(data["artifacts"]) > 0:
+                # Original format
+                output_path = (
+                    f'{self.output_directory}/txt2img_{data["artifacts"][0]["seed"]}.png'
+                )
+                with open(output_path, "wb") as f:
+                    f.write(base64.b64decode(data["artifacts"][0]["base64"]))
+            elif "image" in data:
+                # Alternative format - direct image data
+                output_path = (
+                    f'{self.output_directory}/txt2img_{int(time.time())}.png'
+                )
+                with open(output_path, "wb") as f:
+                    f.write(base64.b64decode(data["image"]))
+            else:
+                # Unknown response format
+                raise Exception(f"Unexpected API response format: {data.keys()}")
 
             self._add_watermark(output_path, output_path, "logo.png")
             self.logger.info(f"Image generated and saved at {output_path}")
@@ -839,11 +856,25 @@ class ImageHelper:
             response.raise_for_status()
             data = response.json()
 
-            output_path = (
-                f'{self.output_directory}/erase_{data["artifacts"][0]["seed"]}.png'
-            )
-            with open(output_path, "wb") as f:
-                f.write(base64.b64decode(data["artifacts"][0]["base64"]))
+            # Check if the response contains errors even with 200 status
+            if "errors" in data:
+                raise Exception(f"API Error: {data['errors']}")
+
+            # Handle different response formats
+            if "artifacts" in data and len(data["artifacts"]) > 0:
+                output_path = (
+                    f'{self.output_directory}/erase_{data["artifacts"][0]["seed"]}.png'
+                )
+                with open(output_path, "wb") as f:
+                    f.write(base64.b64decode(data["artifacts"][0]["base64"]))
+            elif "image" in data:
+                output_path = (
+                    f'{self.output_directory}/erase_{int(time.time())}.png'
+                )
+                with open(output_path, "wb") as f:
+                    f.write(base64.b64decode(data["image"]))
+            else:
+                raise Exception(f"Unexpected API response format: {data.keys()}")
 
             self._add_watermark(output_path, output_path, "logo.png")
             self.logger.info(f"Object erased and saved at {output_path}")
@@ -994,11 +1025,21 @@ class ImageHelper:
             if "errors" in data:
                 raise Exception(f"Unexpected JSON errors in successful response: {data['errors']}")
 
-            output_path = (
-                f'{self.output_directory}/replace_{data["artifacts"][0]["seed"]}.png'
-            )
-            with open(output_path, "wb") as f:
-                f.write(base64.b64decode(data["artifacts"][0]["base64"]))
+            # Handle different response formats
+            if "artifacts" in data and len(data["artifacts"]) > 0:
+                output_path = (
+                    f'{self.output_directory}/replace_{data["artifacts"][0]["seed"]}.png'
+                )
+                with open(output_path, "wb") as f:
+                    f.write(base64.b64decode(data["artifacts"][0]["base64"]))
+            elif "image" in data:
+                output_path = (
+                    f'{self.output_directory}/replace_{int(time.time())}.png'
+                )
+                with open(output_path, "wb") as f:
+                    f.write(base64.b64decode(data["image"]))
+            else:
+                raise Exception(f"Unexpected API response format: {data.keys()}")
 
             self._add_watermark(output_path, output_path, "logo.png")
             self.logger.info(f"Search and replace completed and saved at {output_path}")
@@ -1068,11 +1109,25 @@ class ImageHelper:
             response.raise_for_status()
             data = response.json()
 
-            output_path = (
-                f'{self.output_directory}/inpaint_{data["artifacts"][0]["seed"]}.png'
-            )
-            with open(output_path, "wb") as f:
-                f.write(base64.b64decode(data["artifacts"][0]["base64"]))
+            # Check if the response contains errors even with 200 status
+            if "errors" in data:
+                raise Exception(f"API Error: {data['errors']}")
+
+            # Handle different response formats
+            if "artifacts" in data and len(data["artifacts"]) > 0:
+                output_path = (
+                    f'{self.output_directory}/inpaint_{data["artifacts"][0]["seed"]}.png'
+                )
+                with open(output_path, "wb") as f:
+                    f.write(base64.b64decode(data["artifacts"][0]["base64"]))
+            elif "image" in data:
+                output_path = (
+                    f'{self.output_directory}/inpaint_{int(time.time())}.png'
+                )
+                with open(output_path, "wb") as f:
+                    f.write(base64.b64decode(data["image"]))
+            else:
+                raise Exception(f"Unexpected API response format: {data.keys()}")
 
             self._add_watermark(output_path, output_path, "logo.png")
             self.logger.info(f"Inpainting completed and saved at {output_path}")

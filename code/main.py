@@ -81,24 +81,32 @@ class TelegramBot:
         self.logger.info("Logging setup complete. Starting bot...")
 
     def _create_application(self) -> Application:
-        # Try using synchronous requests backend instead of async httpx
-        from telegram.request import HTTPXRequest
+        # Try using more conservative HTTPXRequest settings for stability
+        try:
+            from telegram.request import HTTPXRequest
 
-        # Use synchronous request backend which might be more stable
-        request = HTTPXRequest(
-            connection_pool_size=2,  # Reduced pool size
-            read_timeout=60.0,       # Increased timeouts
-            write_timeout=60.0,
-            connect_timeout=30.0,
-            pool_timeout=60.0,
-        )
+            request = HTTPXRequest(
+                connection_pool_size=1,    # Single connection to avoid conflicts
+                read_timeout=120.0,        # Very long read timeout for large images
+                write_timeout=120.0,       # Very long write timeout for uploads
+                connect_timeout=30.0,      # Reasonable connect timeout
+                pool_timeout=120.0,        # Long pool timeout
+            )
+            self.logger.info("Using conservative HTTPXRequest configuration")
 
-        app = (
-            Application.builder()
-            .token(os.getenv("TELEGRAM_BOT_TOKEN"))
-            .request(request)
-            .build()
-        )
+        except ImportError:
+            request = None
+            self.logger.info("HTTPXRequest not available, using default")
+
+        if request:
+            app = (
+                Application.builder()
+                .token(os.getenv("TELEGRAM_BOT_TOKEN"))
+                .request(request)
+                .build()
+            )
+        else:
+            app = Application.builder().token(os.getenv("TELEGRAM_BOT_TOKEN")).build()
 
         # Add conversation handler for image generation
         conv_handler_image = ConversationHandler(
